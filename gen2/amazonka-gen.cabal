@@ -20,25 +20,6 @@ executable amazonka-gen
     hs-source-dirs:    src
     main-is:           Main.hs
 
-    other-modules:
-          Gen.AST
-        , Gen.Documentation
-        , Gen.IO
-        , Gen.JSON
-        , Gen.Library
-        , Gen.Model
-        , Gen.Model.Endpoint
-        , Gen.Model.Index
-        , Gen.Model.Paginator
-        , Gen.Model.Retrier
-        , Gen.Model.URI
-        , Gen.Model.Waiter
-        , Gen.OrdMap
-        , Gen.Override
-        , Gen.TH
-        , Gen.Text
-        , Gen.Types
-
     ghc-options:       -Wall -threaded
 
     build-depends:
@@ -49,30 +30,22 @@ executable amazonka-gen
         , bifunctors
         , bytestring
         , case-insensitive
-        , data-default-class
-        , directory-tree
+        , directory
         , ede                  == 0.2.4.*
         , errors
+        , filepath
         , hashable
-        , haskell-src-exts     >= 1.16
-        , hindent              >= 4.4.1
         , jason
         , lens                 == 4.5.*
         , mtl
         , optparse-applicative == 0.11.*
-        , pandoc
         , parsec
         , scientific
-        , semigroups
         , semver
-        , stylish-haskell
-        , system-fileio
-        , system-filepath
+        , tagsoup
         , template-haskell
         , text
-        , text-icu
         , text-manipulate
-        , text-regex-replace   == 0.1.*
         , transformers
         , unordered-containers
         , vector
