@@ -22,25 +22,22 @@ import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.State
 import           Data.Monoid
-import           Gen.AST
-import           Gen.IO
-import           Gen.JSON
-import           Gen.Library
-import           Gen.Model
-import           Gen.Templates
-import           Gen.Types
+import qualified Data.SemVer            as SemVer
+import qualified Data.Text              as Text
+import           Khan.Gen.Model
 import           Options.Applicative
 import           System.Directory
 import           System.FilePath
 import           System.IO
 
 data Options = Options
-    { _output    :: FilePath
-    , _models    :: [FilePath]
-    , _overrides :: FilePath
-    , _templates :: FilePath
-    , _assets    :: FilePath
-    , _retry     :: FilePath
+    { _optOutput    :: FilePath
+    , _optModels    :: [FilePath]
+    , _optOverrides :: FilePath
+    , _optTemplates :: FilePath
+    , _optAssets    :: FilePath
+    , _optRetry     :: FilePath
+    , _optVersion   :: SemVer.Version
     } deriving (Show)
 
 makeLenses ''Options
@@ -86,26 +83,32 @@ parser = Options
         <> help "Path to the file containing retry definitions. [required]"
          )
 
-validate :: MonadIO m => Options -> m Options
-validate o = flip execStateT o $ do
-    sequence_
-        [ check output
-        , check overrides
-        , check templates
-        , check assets
-        , check retry
-        ]
-    mapM canon (o ^. models)
-        >>= assign models
+    <*> option (eitherReader (SemVer.fromText . Text.pack))
+         ( long "version"
+        <> metavar "VER"
+        <> help "Version of the library to generate. [required]"
+         )
 
-check :: (MonadIO m, MonadState s m) => Lens' s FilePath -> m ()
-check l = gets (view l) >>= canon >>= assign l
+-- validate :: MonadIO m => Options -> m Options
+-- validate o = flip execStateT o $ do
+--     sequence_
+--         [ check output
+--         , check overrides
+--         , check templates
+--         , check assets
+--         , check retry
+--         ]
+--     mapM canon (o ^. models)
+--         >>= assign models
 
-canon :: MonadIO m => FilePath -> m FilePath
-canon = liftIO . canonicalizePath
+-- check :: (MonadIO m, MonadState s m) => Lens' s FilePath -> m ()
+-- check l = gets (view l) >>= canon >>= assign l
+
+-- canon :: MonadIO m => FilePath -> m FilePath
+-- canon = liftIO . canonicalizePath
 
 main :: IO ()
 main = do
     hSetBuffering stdout LineBuffering
-    o <- customExecParser (prefs showHelpOnError) options >>= validate
+    o <- customExecParser (prefs showHelpOnError) options -- >>= validate
     print o
