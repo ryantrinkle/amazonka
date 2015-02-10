@@ -28,6 +28,7 @@ executable amazonka-gen
         , Khan.Gen.Model.Retrier
         , Khan.Gen.Model.URI
         , Khan.Gen.Model.Waiter
+        , Khan.Gen.Override
 
     ghc-options:       -Wall -threaded
 

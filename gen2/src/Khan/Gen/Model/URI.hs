@@ -33,11 +33,11 @@ data URI = URI
 
 makeLenses ''URI
 
-segments :: Traversal' URI Segment
-segments f x = URI <$> traverse f (_uriPath x) <*> traverse f (_uriQuery x)
+uriSegments :: Traversal' URI Segment
+uriSegments f x = URI <$> traverse f (_uriPath x) <*> traverse f (_uriQuery x)
 
-variables :: Traversal' URI Text
-variables = segments . _SVar
+uriVariables :: Traversal' URI Text
+uriVariables = uriSegments . _SVar
 
 uriParser :: Parser URI
 uriParser = URI
