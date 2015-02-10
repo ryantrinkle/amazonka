@@ -1,4 +1,5 @@
 SHELL     := /usr/bin/env bash
+VERSION   := 0.3.0
 DEPS      := vendor/botocore vendor/jason
 MODEL_DIR := model
 
@@ -60,6 +61,7 @@ MODELS ?= $(QUERY) $(XML) $(JSON)
 gen: build
 	@dist/build/amazonka-gen/amazonka-gen \
  --out=../ \
+ --version=$(VERSION) \
  --overrides=overrides \
  --templates=templates \
  --assets=assets \

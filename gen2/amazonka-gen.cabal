@@ -20,6 +20,15 @@ executable amazonka-gen
     hs-source-dirs:    src
     main-is:           Main.hs
 
+    other-modules:
+          Khan.Gen.Model
+        , Khan.Gen.Model.AST
+        , Khan.Gen.Model.IndexNotation
+        , Khan.Gen.Model.Pager
+        , Khan.Gen.Model.Retrier
+        , Khan.Gen.Model.URI
+        , Khan.Gen.Model.Waiter
+
     ghc-options:       -Wall -threaded
 
     build-depends:
