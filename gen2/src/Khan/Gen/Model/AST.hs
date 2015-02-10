@@ -43,15 +43,6 @@ data Signature
     | S3
       deriving (Eq)
 
--- instance FromJSON Signature where
---     parseJSON = withText "signature" $ \case
---         "v2"      -> pure V2
---         "v3"      -> pure V4
---         "v3https" -> pure V4
---         "v4"      -> pure V4
---         "s3"      -> pure V4
---         e         -> fail ("Unknown Signature: " ++ Text.unpack e)
-
 data Protocol
     = JSON
     | RestJSON
@@ -71,10 +62,6 @@ data Checksum
     = MD5
     | SHA256
       deriving (Eq)
-
--- Just do the service definition model as exact/parseable as possible
--- Then create a nice world of types and notation? Similar to the current split
--- but better formulated.
 
 -- | Top-level service metadata.
 data Meta = Meta
