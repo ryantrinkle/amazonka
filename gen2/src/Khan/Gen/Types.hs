@@ -2,9 +2,15 @@
 {-# LANGUAGE DeriveFoldable             #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveTraversable          #-}
+{-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures             #-}
+{-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE ViewPatterns               #-}
+
+{-# OPTIONS_GHC -fno-warn-orphans       #-}
 
 -- Module      : Khan.Gen.Types
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -20,36 +26,35 @@ module Khan.Gen.Types where
 
 import           Control.Applicative
 import           Control.Lens
-import           Data.Aeson                (FromJSON)
 import           Data.Attoparsec.Text      (Parser)
 import qualified Data.Attoparsec.Text      as Parse
+import           Data.Bifunctor
 import           Data.CaseInsensitive      (CI)
+import qualified Data.CaseInsensitive      as CI
 import           Data.Foldable             (Foldable)
 import           Data.HashMap.Strict       (HashMap)
+import qualified Data.HashMap.Strict       as Map
 import           Data.HashSet              (HashSet)
+import           Data.Jason.Types
+import           Data.Monoid
+import           Data.SemVer               (Version, fromText, toText)
 import           Data.String               (IsString)
-import           Data.Text                 (Text)
 import           Data.Text                 (Text)
 import           Data.Traversable          (Traversable)
 import qualified Filesystem.Path.CurrentOS as Path
 import           GHC.TypeLits
+import           Khan.Gen.TH
 import           Text.EDE                  (Template)
 
-newtype Path (a :: Symbol) = Path { toFilePath :: Path.FilePath }
-    deriving (Show, IsString)
-
-type OutputDir   = Path "output"
-type TemplateDir = Path "template"
-type OverrideDir = Path "override"
-type AssetDir    = Path "asset"
-
-type ModelPath  = Path "model"
-type RetryPath  = Path "retry"
-type WaiterPath = Path "waiter"
-type PagerPath  = Path "pager"
+encode :: Path.FilePath -> Text
+encode = either id id . Path.toText
 
 data OrdMap a = OrdMap { ordMap :: [(Text, a)] }
-    deriving (Eq, Functor, Foldable, Traversable)
+    deriving (Eq, Functor, Foldable, Traversable, Show)
+
+instance FromJSON a => FromJSON (OrdMap a) where
+    parseJSON = withObject "ordered_map" $ \(unObject -> o) ->
+        OrdMap <$> traverse (\(k, v) -> (k,) <$> parseJSON v) o
 
 data Rules = Rules
     { _ruleRenameTo   :: Maybe Text             -- ^ Rename type
@@ -63,16 +68,31 @@ data Rules = Rules
 
 makeLenses ''Rules
 
+instance FromJSON Rules where
+    parseJSON = withObject "rules" $ \o -> Rules
+        <$> o .:? "renameTo"
+        <*> o .:? "replacedBy"
+        <*> o .:? "enumPrefix"
+        <*> o .:? "enumValues" .!= mempty
+        <*> o .:? "required"   .!= mempty
+        <*> o .:? "optional"   .!= mempty
+        <*> o .:? "renamed"    .!= mempty
+
 data Override = Override
-    { _ovUrl              :: Text
-    , _ovOperationUrl     :: Text
-    , _ovOperationModules :: [Text]
-    , _ovTypeModules      :: [Text]
-    , _ovOverrides        :: HashMap Text Rules
+    { _ovOperationImports :: [Text]
+    , _ovTypeImports      :: [Text]
     , _ovIgnoredWaiters   :: HashSet (CI Text)
+    , _ovOverrides        :: HashMap Text Rules
     } deriving (Eq, Show)
 
-makeLenses ''Override
+makeClassy ''Override
+
+instance FromJSON Override where
+    parseJSON = withObject "override" $ \o -> Override
+        <$> o .:? "operationImports" .!= mempty
+        <*> o .:? "typeImports"      .!= mempty
+        <*> o .:? "ignoredWaiters"   .!= mempty
+        <*> o .:? "overrides"        .!= mempty
 
 data Templates a = Templates
     { _tmplCabal           :: Template
@@ -85,3 +105,13 @@ data Templates a = Templates
     }
 
 makeLenses ''Template
+
+instance FromJSON (CI Text) where
+    parseJSON = withText "ci" (return . CI.mk)
+
+instance FromJSON a => FromJSON (HashMap (CI Text) a) where
+    parseJSON = fmap (Map.fromList . map (first CI.mk) . Map.toList) . parseJSON
+
+instance FromJSON Version where
+    parseJSON = withText "semantic_version" $
+        either fail return . fromText

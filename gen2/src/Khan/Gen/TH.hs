@@ -12,26 +12,36 @@
 -- Portability : non-portable (GHC extensions)
 
 module Khan.Gen.TH
-    ( deriveJSON
+    ( deriveFromJSON
+
+    , Options(..)
+    , upper
+    , lower
+    , spinal
     ) where
 
 import           Control.Applicative
 import           Control.Lens
-import           Data.Jason.TH        hiding (deriveJSON)
+import           Data.Jason.TH
 import           Data.Text            (Text)
+import qualified Data.Text            as Text
 import           Data.Text.Manipulate
 import           Khan.Gen.Text
 import           Language.Haskell.TH
 
-deriveJSON :: Name -> Q [Dec]
-deriveJSON = deriveFromJSON $
-    defaultOptions
-        { constructorTagModifier = asText toSpinal
-        , fieldLabelModifier     = asText stripLens
-        , allNullaryToStringTag  = True
-        , sumEncoding            =
-            defaultTaggedObject
-                { tagFieldName      = "type"
-                , contentsFieldName = "contents"
-                }
-        }
+upper, lower, spinal :: Options
+upper  = defaults { constructorTagModifier = asText Text.toUpper }
+lower  = defaults { constructorTagModifier = asText Text.toLower }
+spinal = defaults
+
+defaults :: Options
+defaults = defaultOptions
+    { constructorTagModifier = asText toSpinal
+    , fieldLabelModifier     = asText stripLens
+    , allNullaryToStringTag  = True
+    , sumEncoding            =
+        defaultTaggedObject
+            { tagFieldName      = "type"
+            , contentsFieldName = "contents"
+            }
+    }

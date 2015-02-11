@@ -1,4 +1,7 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 -- Module      : Khan.Gen.Model
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -15,10 +18,14 @@ module Khan.Gen.Model
    , module Model
    ) where
 
+import           Control.Applicative
 import           Control.Lens
-import           Data.Aeson               (FromJSON)
 import           Data.HashMap.Strict      (HashMap)
+import           Data.Jason
+import           Data.Jason.Types         (mkObject, unObject)
+import           Data.Monoid
 import           Data.Text                (Text)
+import qualified Data.Text                as Text
 import           Khan.Gen.Model.Index     as Model
 import           Khan.Gen.Model.Paginator as Model
 import           Khan.Gen.Model.Retrier   as Model
@@ -33,9 +40,9 @@ data Method
     | HEAD
     | PUT
     | DELETE
-      deriving (Eq)
+      deriving (Eq, Show)
 
-deriveJSON ''Method
+deriveFromJSON upper ''Method
 
 data Signature
     = V2
@@ -43,9 +50,9 @@ data Signature
     | V3HTTPS
     | V4
     | S3
-      deriving (Eq)
+      deriving (Eq, Show)
 
-deriveJSON ''Signature
+deriveFromJSON lower ''Signature
 
 data Protocol
     = JSON
@@ -54,24 +61,29 @@ data Protocol
     | RestXML
     | Query
     | EC2
-      deriving (Eq)
+      deriving (Eq, Show)
 
-deriveJSON ''Protocol
+deriveFromJSON spinal ''Protocol
 
 data Timestamp
     = RFC822
     | ISO8601
     | POSIX
-      deriving (Eq, Ord)
+      deriving (Eq, Show)
 
-deriveJSON ''Timestamp
+instance FromJSON Timestamp where
+    parseJSON = withText "timestamp" $ \case
+        "rfc822"        -> pure RFC822
+        "iso8601"       -> pure ISO8601
+        "unixTimestamp" -> pure POSIX
+        e               -> fail ("Unknown Timestamp: " ++ Text.unpack e)
 
 data Checksum
     = MD5
     | SHA256
-      deriving (Eq)
+      deriving (Eq, Show)
 
-deriveJSON ''Checksum
+deriveFromJSON spinal ''Checksum
 
 data Location
     = Headers
@@ -80,9 +92,9 @@ data Location
     | Querystring
     | StatusCode
     | Body
-      deriving (Eq)
+      deriving (Eq, Show)
 
-deriveJSON ''Location
+deriveFromJSON spinal ''Location
 
 data XMLNS = XMLNS
     { _xnsPrefix :: !Text
@@ -90,43 +102,55 @@ data XMLNS = XMLNS
     } deriving (Eq, Show)
 
 makeLenses ''XMLNS
-deriveJSON ''XMLNS
+deriveFromJSON spinal ''XMLNS
 
 -- | A reference to a 'Shape', plus any additional annotations
 -- specific to the point at which the type is de/serialised.
 data Ref = Ref
-    { _refShape         :: Text
+    { _refShape         :: !Text
     , _refDocumentation :: Maybe Text
     , _refLocation      :: Maybe Location
     , _refLocationName  :: Maybe Text
-    , _refStreaming     :: Bool
+    , _refStreaming     :: !Bool
     , _refResultWrapper :: Maybe Text
-    , _refWrapper       :: Bool
-    , _refFlattened     :: Bool
-    , _refException     :: Bool
-    , _refFault         :: Bool
-    } deriving (Eq)
+    , _refWrapper       :: !Bool
+    , _refFlattened     :: !Bool
+    , _refException     :: !Bool
+    , _refFault         :: !Bool
+    } deriving (Eq, Show)
 
 makeLenses ''Ref
-deriveJSON ''Ref
+
+instance FromJSON Ref where
+    parseJSON = withObject "ref" $ \o -> Ref
+        <$> o .:  "shape"
+        <*> o .:? "documentation"
+        <*> o .:? "location"
+        <*> o .:? "locationName"
+        <*> o .:? "streaming" .!= False
+        <*> o .:? "resultWrapper"
+        <*> o .:? "wrapper"   .!= False
+        <*> o .:? "flattened" .!= False
+        <*> o .:? "exception" .!= False
+        <*> o .:? "fault"     .!= False
 
 data List = List
     { _listDocumentation :: Maybe Text
     , _listMember        :: Ref
-    , _listMin           :: Int
+    , _listMin           :: !Int
     , _listMax           :: Maybe Int
-    , _listFlattened     :: Bool
+    , _listFlattened     :: !Bool
     , _listLocationName  :: Maybe Text
-    } deriving (Eq)
+    } deriving (Eq, Show)
 
 data Map = Map
     { _mapDocumentation :: Maybe Text
     , _mapKey           :: Ref
     , _mapValue         :: Ref
-    , _mapMin           :: Int
+    , _mapMin           :: !Int
     , _mapMax           :: Maybe Int
-    , _mapFlattened     :: Bool
-    } deriving (Eq)
+    , _mapFlattened     :: !Bool
+    } deriving (Eq, Show)
 
 data Struct = Struct
     { _structDocumentation :: Maybe Text
@@ -134,19 +158,19 @@ data Struct = Struct
     , _structMembers       :: OrdMap Ref
     , _structPayload       :: Maybe Text
     , _structXmlNamespace  :: Maybe XMLNS
-    , _structException     :: Bool
-    , _structFault         :: Bool
-    } deriving (Eq)
+    , _structException     :: !Bool
+    , _structFault         :: !Bool
+    } deriving (Eq, Show)
 
 data Chars = Chars
-    { _charsDocumentation :: Maybe Chars
-    , _charsMin           :: Int
+    { _charsDocumentation :: Maybe Text
+    , _charsMin           :: !Int
     , _charsMax           :: Maybe Int
-    , _charsPattern       :: Maybe Chars
-    , _charsXmlAttribute  :: Bool
-    , _charsLocationName  :: Maybe Chars
-    , _charsSensitive     :: Bool
-    } deriving (Eq)
+    , _charsPattern       :: Maybe Text
+    , _charsXmlAttribute  :: !Bool
+    , _charsLocationName  :: Maybe Text
+    , _charsSensitive     :: !Bool
+    } deriving (Eq, Show)
 
 data Enum = Enum
     { _enumDoc          :: Maybe Text
@@ -156,26 +180,26 @@ data Enum = Enum
 
 data Blob = Blob
     { _blobDoc       :: Maybe Text
-    , _blobSensitive :: Bool
-    , _blobStreaming :: Bool
-    } deriving (Eq)
+    , _blobSensitive :: !Bool
+    , _blobStreaming :: !Bool
+    } deriving (Eq, Show)
 
 data Boolean = Boolean
     { _boolDocumentation :: Maybe Text
-    , _boolBox           :: Bool
-    } deriving (Eq)
+    , _boolBox           :: !Bool
+    } deriving (Eq, Show)
 
 data Time = Time
     { _timeDocumentation   :: Maybe Text
-    , _timeTimestampFormat :: Timestamp
-    } deriving (Eq)
+    , _timeTimestampFormat :: !Timestamp
+    } deriving (Eq, Show)
 
 data Number a = Number
     { _numDocumentation :: Maybe Text
-    , _numMin           :: a
+    , _numMin           :: !a
     , _numMax           :: Maybe a
-    , _numBox           :: Bool
-    } deriving (Eq)
+    , _numBox           :: !Bool
+    } deriving (Eq, Show)
 
 -- | The sum of all possible types.
 data Shape
@@ -189,61 +213,81 @@ data Shape
     | SInt    (Number Int)
     | SDouble (Number Double)
     | SLong   (Number Integer)
-      deriving (Eq)
+      deriving (Eq, Show)
 
 makePrisms ''Shape
 
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP
-    { _httpMethod :: Method
-    , _httpUri    :: URI
-    , _httpStatus :: Maybe Int
-    } deriving (Eq)
+    { _httpMethod     :: !Method
+    , _httpRequestUri :: !URI
+    , _httpStatus     :: Maybe Int
+    } deriving (Eq, Show)
 
-deriveJSON ''HTTP
+deriveFromJSON spinal ''HTTP
 
 -- | An individual service opereration.
 data Operation = Operation
-    { _operName             :: Text
-    , _operDocumentation    :: Text
+    { _operName             :: !Text
+    , _operDocumentation    :: Maybe Text
     , _operDocumentationUrl :: Maybe Text
-    , _operHttp             :: HTTP
+    , _operHttp             :: !HTTP
     , _operInput            :: Maybe Ref
     , _operOutput           :: Maybe Ref
     , _operErrors           :: [Ref]
-    } deriving (Eq)
+    } deriving (Eq, Show)
 
 makeLenses ''Operation
-deriveJSON ''Operation
+
+instance FromJSON Operation where
+    parseJSON = withObject "operation" $ \o -> Operation
+        <$> o .:  "name"
+        <*> o .:? "documentation"
+        <*> o .:? "documentationUrl"
+        <*> o .:  "http"
+        <*> o .:? "input"
+        <*> o .:? "output"
+        <*> o .:? "errors" .!= mempty
 
 -- | Top-level service metadata.
 data Metadata = Metadata
-    { _metaServiceFullName     :: Text
-    , _metaServiceAbbreviation :: Text
-    , _metaApiVersion          :: Text
-    , _metaEndpointPrefix      :: Text
+    { _metaServiceFullName     :: !Text
+    , _metaServiceAbbreviation :: !Text
+    , _metaApiVersion          :: !Text
+    , _metaEndpointPrefix      :: !Text
     , _metaGlobalEndpoint      :: Maybe Text
-    , _metaSignatureVersion    :: Signature
+    , _metaSignatureVersion    :: !Signature
     , _metaXmlNamespace        :: Maybe Text
     , _metaTargetPrefix        :: Maybe Text
     , _metaJsonVersion         :: Maybe Text
     , _metaTimestampFormat     :: Maybe Timestamp
     , _metaChecksumFormat      :: Maybe Checksum
-    , _metaProtocol            :: Protocol
-    } deriving (Eq)
+    , _metaProtocol            :: !Protocol
+    } deriving (Eq, Show)
 
-makeLenses ''Metadata
-deriveJSON ''Metadata
+makeClassy ''Metadata
+deriveFromJSON spinal ''Metadata
 
 data Service = Service
-    { _svcName             :: Text
-    , _svcFullName         :: Text
-    , _svcLibraryName      :: Text
-    , _svcMetadata         :: Metadata
-    , _svcDocumentation    :: Text
-    , _svcDocumentationUrl :: Text
+    { _svcMetadata         :: !Metadata
+    , _svcDocumentation    :: !Text
+    , _svcDocumentationUrl :: !Text
     , _svcOperations       :: HashMap Text Operation
-    , _svcShapes           :: HashMap Text Shape
-    } deriving (Eq)
+    , _svcShapes           :: HashMap Text Object
+    , _svcOverride         :: !Override
+    , _svcName             :: !Text
+    } deriving (Eq, Show)
 
 makeLenses ''Service
+
+instance HasMetadata Service where metadata = svcMetadata
+instance HasOverride Service where override = svcOverride
+
+instance FromJSON (Text -> Service) where
+    parseJSON = withObject "service" $ \o -> Service
+        <$> o .:  "metadata"
+        <*> o .:  "documentation"
+        <*> o .:? "documentationUrl" .!= mempty -- FIXME: temporarily defaulted
+        <*> o .:  "operations"
+        <*> o .:  "shapes"
+        <*> parseJSON (Object o)

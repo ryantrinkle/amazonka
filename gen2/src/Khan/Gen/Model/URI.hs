@@ -22,14 +22,14 @@ import           Data.Text            (Text)
 data Segment
     = SVar   Text
     | SConst Text
-      deriving (Eq)
+      deriving (Eq, Show)
 
 makePrisms ''Segment
 
 data URI = URI
     { _uriPath  :: [Segment]
     , _uriQuery :: [Segment]
-    } deriving (Eq)
+    } deriving (Eq, Show)
 
 makeLenses ''URI
 

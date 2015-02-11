@@ -16,23 +16,22 @@
 
 module Khan.Gen.JSON where
 
-import           Control.Error
 import qualified Data.Aeson       as A
 import           Data.Function    (on)
 import           Data.Jason.Types
 import           Data.List
 import           Data.Monoid
 
-parse :: FromJSON a => Object -> Script a
-parse = hoistEither . parseEither parseJSON . Object
+parseObject :: FromJSON a => Object -> Either String a
+parseObject = parseEither parseJSON . Object
 
-toEnv :: (Show a, A.ToJSON a) => a -> Script A.Object
-toEnv (A.toJSON -> A.Object o) = right o
-toEnv e                        = left $
-    "Failed to extract JSON Object from: " ++ show e
+-- toEnv :: (Show a, A.ToJSON a) => a -> Script A.Object
+-- toEnv (A.toJSON -> A.Object o) = right o
+-- toEnv e                        = left $
+--     "Failed to extract JSON Object from: " ++ show e
 
-merge :: [Object] -> Object
-merge = foldl' go mempty
+mergeObjects :: [Object] -> Object
+mergeObjects = foldl' go mempty
   where
     go :: Object -> Object -> Object
     go (unObject -> a) (unObject -> b) = mkObject (assoc value a b)

@@ -22,36 +22,36 @@ data Match
     | MatchPathAny
     | MatchStatus
     | MatchError
-      deriving (Eq)
+      deriving (Eq, Show)
 
 data State
     = StateRetry
     | StateSuccess
     | StateFailure
-      deriving (Eq)
+      deriving (Eq, Show)
 
 data Expected
     = ExpectStatus Int
     | ExpectText   Text
     | ExpectCtor   Text
-      deriving (Eq)
+      deriving (Eq, Show)
 
 data Notation
     = Indexed Text Notation
     | Nested  Text Notation
     | Access  Text
-      deriving (Eq)
+      deriving (Eq, Show)
 
 data Acceptor = Acceptor
     { _acceptExpected :: Expected
     , _acceptMatcher  :: Match
     , _acceptState    :: State
     , _acceptArgument :: Maybe Notation
-    } deriving (Eq)
+    } deriving (Eq, Show)
 
 data Wait = Wait
     { _waitDelay       :: Int
     , _waitMaxAttempts :: Int
     , _waitOperation   :: Text
     , _waitAcceptors   :: [Acceptor]
-    } deriving (Eq)
+    } deriving (Eq, Show)
