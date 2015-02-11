@@ -21,14 +21,18 @@ executable amazonka-gen
     main-is:           Main.hs
 
     other-modules:
-          Khan.Gen.Model
-        , Khan.Gen.Model.AST
-        , Khan.Gen.Model.IndexNotation
-        , Khan.Gen.Model.Pager
+          Khan.Gen.IO
+        , Khan.Gen.JSON
+        , Khan.Gen.Model
+        , Khan.Gen.Model.Endpoint
+        , Khan.Gen.Model.Index
+        , Khan.Gen.Model.Paginator
         , Khan.Gen.Model.Retrier
         , Khan.Gen.Model.URI
         , Khan.Gen.Model.Waiter
-        , Khan.Gen.Override
+        , Khan.Gen.TH
+        , Khan.Gen.Text
+        , Khan.Gen.Types
 
     ghc-options:       -Wall -threaded
 
@@ -56,6 +60,10 @@ executable amazonka-gen
         , template-haskell
         , text
         , text-manipulate
+        , text-icu
+        , text-regex-replace   == 0.1.*
         , transformers
         , unordered-containers
         , vector
+        , system-filepath
+        , system-fileio
