@@ -2,23 +2,16 @@
 
 > _Warning:_ This is an experimental preview release which is still under heavy development and not intended for public consumption, _caveat emptor_!
 
-* [Version](#version)
 * [Description](#description)
 * [Contribute](#contribute)
 * [Licence](#licence)
 
-
-## Version
-
-`{{ version }}`
-
-
 ## Description
 
-{{ documentation }}
+{{ description }}
 
 Documentation is available via [Hackage](http://hackage.haskell.org/package/{{ library }})
-and the [AWS API Reference]({{ documentationUrl }}).
+and the [AWS API Reference]({{ url }}).
 
 
 ## Contribute

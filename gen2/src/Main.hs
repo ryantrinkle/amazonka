@@ -16,30 +16,34 @@
 module Main (main) where
 
 import           Control.Applicative
-import           Control.Error
-import           Control.Lens           (Lens', assign, makeLenses, view, (^.))
+import qualified Control.Foldl             as Fold
+import           Control.Lens              (Lens', assign, makeLenses, view,
+                                            (^.))
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.State
 import           Data.Monoid
-import qualified Data.SemVer            as SemVer
+import qualified Data.SemVer               as SemVer
 import           Data.String
-import qualified Data.Text              as Text
+import qualified Data.Text                 as Text
+import           Filesystem.Path.CurrentOS hiding (encode)
 import           Khan.Gen.IO
+import           Khan.Gen.JSON
 import           Khan.Gen.Model
 import           Khan.Gen.Types
 import           Options.Applicative
-import           System.Directory
-import           System.FilePath
-import           System.IO
+import           Prelude                   hiding (FilePath)
+import qualified Turtle
+import           Turtle.Prelude
+import           Turtle.Shell              hiding (view)
 
 data Options = Options
-    { _optOutput    :: OutputDir
-    , _optModels    :: [ModelPath]
-    , _optOverrides :: OverrideDir
-    , _optTemplates :: TemplateDir
-    , _optAssets    :: AssetDir
-    , _optRetry     :: RetryPath
+    { _optOutput    :: FilePath
+    , _optModels    :: [FilePath]
+    , _optOverrides :: FilePath
+    , _optTemplates :: FilePath
+    , _optAssets    :: FilePath
+    , _optRetry     :: FilePath
     , _optVersion   :: SemVer.Version
     } deriving (Show)
 
@@ -95,26 +99,60 @@ parser = Options
 string :: IsString a => ReadM a
 string = eitherReader (Right . fromString)
 
--- validate :: MonadIO m => Options -> m Options
--- validate o = flip execStateT o $ do
---     sequence_
---         [ check output
---         , check overrides
---         , check templates
---         , check assets
---         , check retry
---         ]
---     mapM canon (o ^. models)
---         >>= assign models
+validate :: MonadIO m => Options -> m Options
+validate o = flip execStateT o $ do
+    sequence_
+        [ check optOutput
+        , check optOverrides
+        , check optTemplates
+        , check optAssets
+        , check optRetry
+        ]
+    mapM canon (o ^. optModels) >>= assign optModels
+  where
+    check :: (MonadIO m, MonadState s m) => Lens' s FilePath -> m ()
+    check l = gets (view l) >>= canon >>= assign l
 
--- check :: (MonadIO m, MonadState s m) => Lens' s FilePath -> m ()
--- check l = gets (view l) >>= canon >>= assign l
-
--- canon :: MonadIO m => FilePath -> m FilePath
--- canon = liftIO . canonicalizePath
+    canon :: MonadIO m => FilePath -> m FilePath
+    canon = liftIO . realpath
 
 main :: IO ()
-main = do
-    hSetBuffering stdout LineBuffering
-    o <- customExecParser (prefs showHelpOnError) options -- >>= validate
-    print o
+main = sh $ do
+    o <- liftIO (customExecParser (prefs showHelpOnError) options)
+        >>= validate
+
+    forM_ (o ^. optModels) $ \d -> do
+        s <- service d (o ^. optOverrides)
+        say "Completed" (s ^. metaServiceFullName)
+
+    say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
+
+service :: FilePath -> FilePath -> Shell Service
+service d o = do
+    say "Load Service" (encode d)
+    v <- version
+    x <- requireObject override
+    y <- mergeObjects <$> sequence
+        [ pure x
+        , requireObject (normal v)
+        , optionalObject "waiters"    (waiters v)
+        , optionalObject "pagination" (pagers  v)
+        ]
+    case parseObject y of
+        Left  e -> failure d e
+        Right f -> return $ f (encode name)
+  where
+    version = liftIO $ do
+        m <- fold (ls d) Fold.head
+        maybe (failure d "Unable to find versioned model")
+              (pure . fromText . Text.takeWhile (/= '.') . encode)
+              m
+
+    normal   = path "normal.json"
+    waiters  = path "waiters.json"
+    pagers   = path "paginators.json"
+
+    path e v = d </> v <.> e
+    override = o </> name <.> "json"
+
+    name = basename d

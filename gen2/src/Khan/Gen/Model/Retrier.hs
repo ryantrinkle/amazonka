@@ -22,25 +22,25 @@ import           Data.Text           (Text)
 data When
     = WhenStatus (Maybe Text) Int
     | WhenCRC32  Text
-      deriving (Eq)
+      deriving (Eq, Show)
 
 data Policy
     = ApplyRef  Text
     | ApplySock [Text]
     | ApplyWhen When
-      deriving (Eq)
+      deriving (Eq, Show)
 
 data Delay = Delay
     { _delayType         :: Text
     , _delayBase         :: Scientific
     , _delayGrowthFactor :: Int
-    } deriving (Eq)
+    } deriving (Eq, Show)
 
 data Retry = Retry
     { _retryMaxAttempts :: Int
     , _retryDelay       :: Delay
     , _retryPolicies    :: HashMap Text Policy
-    } deriving (Eq)
+    } deriving (Eq, Show)
 
 makeLenses ''Retry
 
@@ -48,6 +48,6 @@ data Retrier = Retrier
     { _retrierDefinitions :: HashMap Text Policy
     , _retrierRetries     :: HashMap Text Retry
     , _retrierDefault     :: Retry
-    } deriving (Eq)
+    } deriving (Eq, Show)
 
 makeLenses ''Retrier

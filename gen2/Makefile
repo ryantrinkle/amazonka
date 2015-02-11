@@ -62,9 +62,9 @@ gen: build
 	@dist/build/amazonka-gen/amazonka-gen \
  --out=../ \
  --version=$(VERSION) \
- --overrides=overrides \
- --templates=templates \
- --assets=assets \
+ --overrides=override \
+ --templates=template \
+ --assets=asset \
  --retry=$(MODEL_DIR)/_retry.json \
  $(addprefix --model=,$(addprefix $(MODEL_DIR)/,$(MODELS)))
 
