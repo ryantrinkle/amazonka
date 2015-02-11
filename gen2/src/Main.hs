@@ -16,16 +16,19 @@
 module Main (main) where
 
 import           Control.Applicative
-import qualified Control.Foldl             as Fold
+import           Control.Error
 import           Control.Lens              (Lens', assign, makeLenses, view,
                                             (^.))
 import           Control.Monad
+import           Control.Monad.Except
 import           Control.Monad.IO.Class
 import           Control.Monad.State
+import           Data.List                 (sort)
 import           Data.Monoid
 import qualified Data.SemVer               as SemVer
 import           Data.String
 import qualified Data.Text                 as Text
+import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
 import           Khan.Gen.IO
 import           Khan.Gen.JSON
@@ -33,9 +36,6 @@ import           Khan.Gen.Model
 import           Khan.Gen.Types
 import           Options.Applicative
 import           Prelude                   hiding (FilePath)
-import qualified Turtle
-import           Turtle.Prelude
-import           Turtle.Shell              hiding (view)
 
 data Options = Options
     { _optOutput    :: FilePath
@@ -114,11 +114,13 @@ validate o = flip execStateT o $ do
     check l = gets (view l) >>= canon >>= assign l
 
     canon :: MonadIO m => FilePath -> m FilePath
-    canon = liftIO . realpath
+    canon = liftIO . FS.canonicalizePath
 
 main :: IO ()
-main = sh $ do
-    o <- liftIO (customExecParser (prefs showHelpOnError) options)
+main = runScript $ do
+--    hSetBuffering stdout LineBuffering
+
+    o <- scriptIO $ customExecParser (prefs showHelpOnError) options
         >>= validate
 
     forM_ (o ^. optModels) $ \d -> do
@@ -127,7 +129,7 @@ main = sh $ do
 
     say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
-service :: FilePath -> FilePath -> Shell Service
+service :: FilePath -> FilePath -> Script Service
 service d o = do
     say "Load Service" (encode d)
     v <- version
@@ -142,11 +144,10 @@ service d o = do
         Left  e -> failure d e
         Right f -> return $ f (encode name)
   where
-    version = liftIO $ do
-        m <- fold (ls d) Fold.head
-        maybe (failure d "Unable to find versioned model")
-              (pure . fromText . Text.takeWhile (/= '.') . encode)
-              m
+    version = do
+        fs <- reverse . sort <$> scriptIO (FS.listDirectory d)
+        f  <- tryHead ("Failed to get model version from " ++ show d) fs
+        return (basename f)
 
     normal   = path "normal.json"
     waiters  = path "waiters.json"
