@@ -23,20 +23,23 @@ import           Control.Monad.IO.Class
 import           Control.Monad.State
 import           Data.Monoid
 import qualified Data.SemVer            as SemVer
+import           Data.String
 import qualified Data.Text              as Text
+import           Khan.Gen.IO
 import           Khan.Gen.Model
+import           Khan.Gen.Types
 import           Options.Applicative
 import           System.Directory
 import           System.FilePath
 import           System.IO
 
 data Options = Options
-    { _optOutput    :: FilePath
-    , _optModels    :: [FilePath]
-    , _optOverrides :: FilePath
-    , _optTemplates :: FilePath
-    , _optAssets    :: FilePath
-    , _optRetry     :: FilePath
+    { _optOutput    :: OutputDir
+    , _optModels    :: [ModelPath]
+    , _optOverrides :: OverrideDir
+    , _optTemplates :: TemplateDir
+    , _optAssets    :: AssetDir
+    , _optRetry     :: RetryPath
     , _optVersion   :: SemVer.Version
     } deriving (Show)
 
@@ -47,37 +50,37 @@ options = info (helper <*> parser) fullDesc
 
 parser :: Parser Options
 parser = Options
-    <$> strOption
+    <$> option string
          ( long "out"
         <> metavar "DIR"
         <> help "Directory to place the generated library. [required]"
          )
 
-    <*> some (strOption
+    <*> some (option string
          ( long "model"
         <> metavar "PATH"
         <> help "Directory for a service's botocore models. [required]"
          ))
 
-    <*> strOption
+    <*> option string
          ( long "overrides"
         <> metavar "DIR"
         <> help "Directory containing amazonka overrides. [required]"
          )
 
-    <*> strOption
+    <*> option string
          ( long "templates"
         <> metavar "DIR"
         <> help "Directory containing ED-E templates. [required]"
          )
 
-    <*> strOption
+    <*> option string
          ( long "assets"
         <> metavar "PATH"
         <> help "Directory containing assets for generated libraries. [required]"
          )
 
-    <*> strOption
+    <*> option string
          ( long "retry"
         <> metavar "PATH"
         <> help "Path to the file containing retry definitions. [required]"
@@ -88,6 +91,9 @@ parser = Options
         <> metavar "VER"
         <> help "Version of the library to generate. [required]"
          )
+
+string :: IsString a => ReadM a
+string = eitherReader (Right . fromString)
 
 -- validate :: MonadIO m => Options -> m Options
 -- validate o = flip execStateT o $ do

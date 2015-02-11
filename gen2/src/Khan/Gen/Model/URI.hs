@@ -14,9 +14,9 @@ module Khan.Gen.Model.URI where
 
 import           Control.Applicative
 import           Control.Lens
-import           Data.Aeson           (FromJSON)
 import           Data.Attoparsec.Text (Parser)
 import qualified Data.Attoparsec.Text as Parse
+import           Data.Jason
 import           Data.Text            (Text)
 
 data Segment
@@ -38,6 +38,9 @@ uriSegments f x = URI <$> traverse f (_uriPath x) <*> traverse f (_uriQuery x)
 
 uriVariables :: Traversal' URI Text
 uriVariables = uriSegments . _SVar
+
+instance FromJSON URI where
+    parseJSON = withText "uri" (either fail return . Parse.parseOnly uriParser)
 
 uriParser :: Parser URI
 uriParser = URI

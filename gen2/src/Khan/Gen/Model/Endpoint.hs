@@ -1,4 +1,6 @@
--- Module      : Khan.Gen.Model.IndexNotation
+{-# LANGUAGE OverloadedStrings #-}
+
+-- Module      : Khan.Gen.Model.Endpoint
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
@@ -8,8 +10,4 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 
-module Khan.Gen.Model.IndexNotation where
-
-import           Control.Lens
-import           Data.Aeson   (FromJSON)
-import           Data.Text    (Text)
+module Khan.Gen.Model.Endpoint where

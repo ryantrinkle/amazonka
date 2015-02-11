@@ -16,7 +16,7 @@ import           Control.Lens
 import           Data.Aeson   (FromJSON)
 import           Data.Text    (Text)
 
-data MatchType
+data Match
     = MatchPath
     | MatchPathAll
     | MatchPathAny
@@ -24,7 +24,7 @@ data MatchType
     | MatchError
       deriving (Eq)
 
-data StateType
+data State
     = StateRetry
     | StateSuccess
     | StateFailure
@@ -44,8 +44,8 @@ data Notation
 
 data Acceptor = Acceptor
     { _acceptExpected :: Expected
-    , _acceptMatcher  :: MatchType
-    , _acceptState    :: StateType
+    , _acceptMatcher  :: Match
+    , _acceptState    :: State
     , _acceptArgument :: Maybe Notation
     } deriving (Eq)
 
