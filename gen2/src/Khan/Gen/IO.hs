@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns      #-}
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -16,11 +15,13 @@
 module Khan.Gen.IO where
 
 import           Control.Applicative
+import           Control.Error
 import           Control.Monad
 import           Control.Monad.Error
 import           Control.Monad.IO.Class
 import qualified Data.Aeson                as A
 import           Data.Aeson.Encode.Pretty
+import           Data.Bifunctor
 import           Data.ByteString           (ByteString)
 import qualified Data.ByteString.Lazy      as LBS
 import           Data.Jason                (eitherDecode')
@@ -41,35 +42,33 @@ import           Khan.Gen.Types
 import           Prelude                   hiding (FilePath)
 import           Text.EDE                  (Template)
 import qualified Text.EDE                  as EDE
-import           Turtle.Prelude
-import           Turtle.Shell              (Shell)
 
 -- loadRetries :: RetryPath -> Script Retrier
 -- loadRetries = requireObject >=> parse
 
 -- Change namespace from Khan to just Gen again
 
-requireObject :: FromJSON a => FilePath -> Shell a
+requireObject :: FromJSON a => FilePath -> Script a
 requireObject p = loadObject p >>= either (failure p) return
 
-optionalObject :: Text -> FilePath -> Shell Object
+optionalObject :: Text -> FilePath -> Script Object
 optionalObject k p = either (const obj) id <$> loadObject p
   where
     obj = mkObject [(k, Object mempty)]
 
-loadObject :: FromJSON a => FilePath -> Shell (Either String a)
-loadObject p = liftIO $ do
+loadObject :: FromJSON a => FilePath -> Script (Either String a)
+loadObject p = scriptIO $ do
     say "Load Object" (encode p)
-    b <- testfile p
+    b <- FS.isFile p
     if b
         then eitherDecode' . LBS.fromStrict <$> FS.readFile p
         else return . Left $ "Unable to find " ++ show p
 
-failure :: MonadIO m => FilePath -> String -> m a
-failure !p !msg = liftIO . die $ Text.pack msg <> " in " <> encode p
+failure :: FilePath -> String -> Script a
+failure p msg = throwError $ msg <> " in " <> Text.unpack (encode p)
 
 say :: MonadIO m => Text -> Text -> m ()
-say !x !msg = liftIO . Text.putStrLn $ "[ " <> y <> "] " <> msg
+say x msg = liftIO . Text.putStrLn $ "[ " <> y <> "] " <> msg
   where
     y | n > 0     = x <> Text.replicate n " "
       | otherwise = x
@@ -116,7 +115,7 @@ say !x !msg = liftIO . Text.putStrLn $ "[ " <> y <> "] " <> msg
 
 --     n = 17 - Text.length x
 
--- dots :: FilePath -> Bool
--- dots "."  = False
--- dots ".." = False
--- dots _    = True
+dots :: String -> Bool
+dots "."  = False
+dots ".." = False
+dots _    = True

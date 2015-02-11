@@ -249,10 +249,22 @@ instance FromJSON Operation where
         <*> o .:? "output"
         <*> o .:? "errors" .!= mempty
 
+newtype Name = Name Text
+    deriving (Eq, Show)
+
+instance FromJSON Name where
+    parseJSON = withText "name" $ pure . Name
+
+newtype Abbrev = Abbrev Text
+    deriving (Eq, Show)
+
+instance FromJSON Abbrev where
+    parseJSON = withText "abbrev" $ pure . Abbrev
+
 -- | Top-level service metadata.
 data Metadata = Metadata
-    { _metaServiceFullName     :: !Text
-    , _metaServiceAbbreviation :: !Text
+    { _metaServiceFullName     :: !Name
+    , _metaServiceAbbreviation :: !Abbrev
     , _metaApiVersion          :: !Text
     , _metaEndpointPrefix      :: !Text
     , _metaGlobalEndpoint      :: Maybe Text

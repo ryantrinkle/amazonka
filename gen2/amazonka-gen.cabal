@@ -45,8 +45,8 @@ executable amazonka-gen
         , bytestring
         , case-insensitive
         , ede                  == 0.2.4.*
+        , errors
         , filepath
-        , foldl
         , hashable
         , jason
         , lens                 == 4.5.*
@@ -55,15 +55,14 @@ executable amazonka-gen
         , parsec
         , scientific
         , semver
+        , system-fileio
+        , system-filepath
         , tagsoup
         , template-haskell
         , text
-        , text-manipulate
         , text-icu
+        , text-manipulate
         , text-regex-replace   == 0.1.*
         , transformers
         , unordered-containers
         , vector
-        , system-filepath
-        , system-fileio
-        , turtle
