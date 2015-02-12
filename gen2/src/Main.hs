@@ -23,6 +23,8 @@ import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.IO.Class
 import           Control.Monad.State
+import qualified Data.HashMap.Strict       as Map
+import           Data.Jason                (eitherDecode)
 import           Data.List                 (sort)
 import           Data.Monoid
 import qualified Data.SemVer               as SemVer
@@ -30,10 +32,10 @@ import           Data.String
 import qualified Data.Text                 as Text
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
-import           Khan.Gen.IO
-import           Khan.Gen.JSON
-import           Khan.Gen.Model
-import           Khan.Gen.Types
+import           Gen.IO
+import           Gen.JSON
+import           Gen.Model
+import           Gen.Types
 import           Options.Applicative
 import           Prelude                   hiding (FilePath)
 
@@ -125,7 +127,8 @@ main = runScript $ do
 
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
-        say "Completed" (s ^. metaServiceFullName)
+--        forM_ (Map.elems $ s ^. svcShapes) $ \x -> do
+        say "Completed" (s ^. svcAbbrev <> " <-> " <> s ^. svcName)
 
     say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
@@ -133,21 +136,23 @@ service :: FilePath -> FilePath -> Script Service
 service d o = do
     say "Load Service" (encode d)
     v <- version
-    x <- requireObject override
+    x <- decode override
     y <- mergeObjects <$> sequence
         [ pure x
-        , requireObject (normal v)
-        , optionalObject "waiters"    (waiters v)
-        , optionalObject "pagination" (pagers  v)
+        , decode (normal v)
+        , def "waiters"    $ decode (waiters v)
+        , def "pagination" $ decode (pagers  v)
         ]
-    case parseObject y of
-        Left  e -> failure d e
-        Right f -> return $ f (encode name)
+    case parse y of
+        Left  e -> throwError $ "Error parsing " ++ show d ++ " with " ++ e
+        Right x -> return x
   where
     version = do
         fs <- reverse . sort <$> scriptIO (FS.listDirectory d)
         f  <- tryHead ("Failed to get model version from " ++ show d) fs
         return (basename f)
+
+    decode = contents >=> hoistEither . eitherDecode
 
     normal   = path "normal.json"
     waiters  = path "waiters.json"
@@ -157,3 +162,14 @@ service d o = do
     override = o </> name <.> "json"
 
     name = basename d
+
+ -- * Calculate correct/massaged Service.svcName during construction
+ -- * Calculate a stable 'amazonka-*' library name per service
+ -- * Ensure every shape has documentation (even if 'documentation is missing' string)
+ -- * Ensure every ref for a shape has documentation, same as above
+ -- * Ensure timestamp format for metadata is set
+ -- * Parse/create the Endpoints model
+ -- * Use a post-processing step (similar to stylish-haskell) which wraps all comment lines to 80 chars
+
+-- * Tag the different 'Doc' usages with their parent type and use Data.Default instances
+--   to select the default documentation for that type using 'fromMaybe def'.

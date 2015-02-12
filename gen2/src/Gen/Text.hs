@@ -12,29 +12,27 @@
 
 module Gen.Text where
 
-import           Control.Error
-import qualified Data.CaseInsensitive  as CI
+import           Control.Applicative
+import           Control.Lens
+import           Control.Monad
+import qualified Data.Attoparsec.Text  as Parse
 import           Data.Char
-import           Data.Foldable         as Fold
+import           Data.Foldable         (foldl')
+import           Data.HashSet          (HashSet)
 import qualified Data.HashSet          as Set
-import           Data.Monoid
+import           Data.Maybe
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
 import           Data.Text.ICU         (Regex)
 import           Data.Text.ICU.Replace (Replace)
 import qualified Data.Text.ICU.Replace as RE
 import           Data.Text.Manipulate
-import           Text.Parsec.Language  (haskellDef)
-import           Text.Parsec.Token     (reservedNames)
 
 asText :: (Text -> Text) -> String -> String
 asText f = Text.unpack . f . Text.pack
 
 dropLower :: Text -> Text
 dropLower = Text.dropWhile (not . isUpper)
-
-safeHead :: Text -> Maybe Text
-safeHead = fmap (Text.singleton . fst) . Text.uncons
 
 stripLens :: Text -> Text
 stripLens t
@@ -47,48 +45,8 @@ stripPrefix p t = Text.strip . fromMaybe t $ p `Text.stripPrefix` t
 stripSuffix :: Text -> Text -> Text
 stripSuffix p t = Text.strip . fromMaybe t $ p `Text.stripSuffix` t
 
--- indent :: Int -> Text -> Text
--- indent n = Text.unlines . ini . map (sep <>) . Text.lines
---   where
---     ini xs = fromMaybe xs (initMay xs)
-
---     sep = Text.replicate n (Text.singleton ' ')
-
-reserved :: Text -> Text
-reserved x
-    | CI.mk x `Set.member` xs = x <> "'"
-    | otherwise               = x
-  where
-    xs = Set.fromList
-       . map (CI.mk . Text.pack)
-       $ [ "head"
-         , "tail"
-         , "delete"
-         , "filter"
-         , "true"
-         , "false"
-         , "map"
-         , "mape"
-         , "object"
-         , "list"
-         , "list1"
-         ] ++ reservedNames haskellDef
-
-constructor :: Text -> Text
-constructor = stripSuffix "_" . acronym . Text.concat . map recase . splitWords
-  where
-    recase x
-        | Text.null x           = x
-        | isDigit (Text.last x) = Text.toUpper x `Text.snoc` '_'
-        | isDigit (Text.head x) = upper `Text.snoc` '_'
-        | otherwise             = upperHead x
-      where
-        upper = case Text.uncons x of
-            Nothing      -> x
-            Just (c, cs) -> c `Text.cons` upperHead cs
-
-acronym :: Text -> Text
-acronym x = Fold.foldl' (flip (uncurry RE.replaceAll)) x xs
+replaceAcronyms :: Text -> Text
+replaceAcronyms x = foldl' (flip (uncurry RE.replaceAll)) x xs
   where
     xs :: [(Regex, Replace)]
     xs = [ ("Acl",           "ACL")
@@ -163,5 +121,4 @@ acronym x = Fold.foldl' (flip (uncurry RE.replaceAll)) x xs
          , ("Vpc",           "VPC")
          , ("Vpn",           "VPN")
          , ("Xml",           "XML")
-         , ("Xlarge",        "XLarge")
          ]

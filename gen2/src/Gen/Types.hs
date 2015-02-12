@@ -1,12 +1,10 @@
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveFoldable             #-}
 {-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures             #-}
-{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TupleSections              #-}
@@ -28,127 +26,41 @@ module Gen.Types where
 
 import           Control.Applicative
 import           Control.Lens
+import           Data.Attoparsec.Text      (Parser)
+import qualified Data.Attoparsec.Text      as Parse
 import           Data.Bifunctor
 import           Data.CaseInsensitive      (CI)
 import qualified Data.CaseInsensitive      as CI
-import           Data.Default.Class
-import           Data.Function             (on)
-import           Data.Hashable             (Hashable)
+import           Data.Foldable             (Foldable)
 import           Data.HashMap.Strict       (HashMap)
 import qualified Data.HashMap.Strict       as Map
 import           Data.HashSet              (HashSet)
 import           Data.Jason.Types
 import           Data.Monoid
-import           Data.SemVer               (Version, fromText)
-import           Data.String
+import           Data.SemVer               (Version, fromText, toText)
+import           Data.String               (IsString)
 import           Data.Text                 (Text)
-import qualified Data.Text                 as Text
+import           Data.Traversable          (Traversable)
 import qualified Filesystem.Path.CurrentOS as Path
-import           Gen.OrdMap                (OrdMap)
-import qualified Gen.OrdMap                as OrdMap
-import           GHC.Generics              (Generic)
+import           GHC.TypeLits
+import           Gen.TH
 import           Text.EDE                  (Template)
-
-data Timestamp
-    = RFC822
-    | ISO8601
-    | POSIX
-      deriving (Eq, Show)
-
-instance FromJSON Timestamp where
-    parseJSON = withText "timestamp" $ \case
-        "rfc822"        -> pure RFC822
-        "iso8601"       -> pure ISO8601
-        "unixTimestamp" -> pure POSIX
-        e               -> fail ("Unknown Timestamp: " ++ Text.unpack e)
-
-data Prim
-    = PBlob
-    | PBool
-    | PText
-    | PInt
-    | PInteger
-    | PDouble
-    | PNatural
-    | PTime Timestamp
-      deriving (Eq, Show)
-
-data TType
-    = TType  Text
-    | TPrim  Prim
-    | TMaybe TType
-    | TSens  TType
-    | TFlat  TType
-    -- | TCase  TType
-    | TList  Text TType
-    | TList1 Text TType
-    | TMap   TType TType
-    | TEMap  Text Text Text TType TType
-      deriving (Eq, Show)
-
-type Untyped (f :: * -> *) = f ()
-type Typed   (f :: * -> *) = f TType
-
-type TextMap = HashMap Text
-type TextSet = HashSet Text
 
 encode :: Path.FilePath -> Text
 encode = either id id . Path.toText
 
-data Constraint
-    = CEq
-    | COrd
-    | CRead
-    | CShow
-    | CGeneric
-    | CEnum
-    | CNum
-    | CIntegral
-    | CReal
-    | CRealFrac
-    | CRealFloat
-    | CMonoid
-    | CSemigroup
-    | CIsString
-      deriving (Eq, Ord, Show, Generic)
+data OrdMap a = OrdMap { ordMap :: [(Text, a)] }
+    deriving (Eq, Functor, Foldable, Traversable, Show)
 
-instance Hashable Constraint
-
-constraint :: Constraint -> Text
-constraint = Text.pack . drop 1 . show
-
-data Derived a = Derived
-    { _derTyped :: Typed a
-    , _derConst :: HashSet Constraint
-    }
-
-data Member = Member
-    { _memPrefix   :: Maybe Text
-    , _memOriginal :: Text
-    , _memName     :: Text
-    } deriving (Show, Generic)
-
-member :: Text -> Member
-member t = Member Nothing t t
-
-instance Eq Member where
-    (==) = on (==) _memName
-
-instance Hashable Member
-
-instance IsString Member where
-    fromString (fromString -> t) = Member Nothing t t
-
-instance FromJSON Member where
-    parseJSON = withText "member" (pure . member)
-
-makeLenses ''Member
+instance FromJSON a => FromJSON (OrdMap a) where
+    parseJSON = withObject "ordered_map" $ \(unObject -> o) ->
+        OrdMap <$> traverse (\(k, v) -> (k,) <$> parseJSON v) o
 
 data Rules = Rules
     { _ruleRenameTo   :: Maybe Text             -- ^ Rename type
     , _ruleReplacedBy :: Maybe Text             -- ^ Existing type that supplants this type
     , _ruleEnumPrefix :: Maybe Text             -- ^ Enum constructor prefix
-    , _ruleEnumValues :: OrdMap Member Text     -- ^ Supplemental sum constructors.
+    , _ruleEnumValues :: HashMap Text Text      -- ^ Supplemental sum constructors.
     , _ruleRequired   :: HashSet (CI Text)      -- ^ Required fields
     , _ruleOptional   :: HashSet (CI Text)      -- ^ Optional fields
     , _ruleRenamed    :: HashMap (CI Text) Text -- ^ Rename fields
@@ -161,15 +73,10 @@ instance FromJSON Rules where
         <$> o .:? "renameTo"
         <*> o .:? "replacedBy"
         <*> o .:? "enumPrefix"
-        <*> (omap <$> o .:? "enumValues" .!= mempty)
+        <*> o .:? "enumValues" .!= mempty
         <*> o .:? "required"   .!= mempty
         <*> o .:? "optional"   .!= mempty
         <*> o .:? "renamed"    .!= mempty
-      where
-        omap = OrdMap.fromList . map (first member)
-
-instance Default Rules where
-    def = Rules Nothing Nothing Nothing mempty mempty mempty mempty
 
 data Override = Override
     { _ovOperationImports :: [Text]
@@ -197,11 +104,7 @@ data Templates a = Templates
     , _tmplSelect          :: a -> (Template, Template)
     }
 
-makeLenses ''Templates
-
-tmplTypes, tmplOperation :: Getter (Templates a) (a -> Template)
-tmplTypes     = to (\s -> fst . _tmplSelect s)
-tmplOperation = to (\s -> snd . _tmplSelect s)
+makeLenses ''Template
 
 instance FromJSON (CI Text) where
     parseJSON = withText "ci" (return . CI.mk)

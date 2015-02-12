@@ -1,11 +1,7 @@
-{-# LANGUAGE FlexibleInstances      #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE LambdaCase             #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
-{-# LANGUAGE OverloadedLists        #-}
-{-# LANGUAGE OverloadedStrings      #-}
-{-# LANGUAGE TemplateHaskell        #-}
-{-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 -- Module      : Gen.Model
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -24,26 +20,22 @@ module Gen.Model
 
 import           Control.Applicative
 import           Control.Lens
-import           Control.Monad
-import           Data.Bifunctor
-import           Data.CaseInsensitive (CI)
-import           Data.HashSet         (HashSet)
+import           Data.HashMap.Strict (HashMap)
 import           Data.Jason
+import           Data.Jason.Types    (mkObject, unObject)
 import           Data.Monoid
-import           Data.Text            (Text)
-import qualified Data.Text            as Text
-import           Debug.Trace
-import           Gen.Documentation
-import           Gen.Model.Paginator  as Model
-import           Gen.Model.Retrier    as Model
-import           Gen.Model.URI        as Model
-import           Gen.Model.Waiter     as Model
-import           Gen.OrdMap           (OrdMap)
-import qualified Gen.OrdMap           as OrdMap
+import           Data.Text           (Text)
+import qualified Data.Text           as Text
+import           Gen.Doc
+import           Gen.Model.Index     as Model
+import           Gen.Model.Paginator as Model
+import           Gen.Model.Retrier   as Model
+import           Gen.Model.URI       as Model
+import           Gen.Model.Waiter    as Model
 import           Gen.Text
 import           Gen.TH
 import           Gen.Types
-import           Prelude              hiding (Enum)
+import           Prelude             hiding (Enum)
 
 data Method
     = GET
@@ -76,6 +68,19 @@ data Protocol
 
 deriveFromJSON spinal ''Protocol
 
+data Timestamp
+    = RFC822
+    | ISO8601
+    | POSIX
+      deriving (Eq, Show)
+
+instance FromJSON Timestamp where
+    parseJSON = withText "timestamp" $ \case
+        "rfc822"        -> pure RFC822
+        "iso8601"       -> pure ISO8601
+        "unixTimestamp" -> pure POSIX
+        e               -> fail ("Unknown Timestamp: " ++ Text.unpack e)
+
 data Checksum
     = MD5
     | SHA256
@@ -104,9 +109,8 @@ deriveFromJSON camel ''XMLNS
 
 -- | A reference to a 'Shape', plus any additional annotations
 -- specific to the point at which the type is de/serialised.
-data Ref a = Ref
-    { _refAnn           :: a
-    , _refShape         :: !Text
+data Ref = Ref
+    { _refShape         :: !Text
     , _refDocumentation :: Maybe Doc
     , _refLocation      :: Maybe Location
     , _refLocationName  :: Maybe Text
@@ -120,8 +124,8 @@ data Ref a = Ref
 
 makeLenses ''Ref
 
-instance FromJSON (Ref ()) where
-    parseJSON = withObject "ref" $ \o -> Ref ()
+instance FromJSON Ref where
+    parseJSON = withObject "ref" $ \o -> Ref
         <$> o .:  "shape"
         <*> o .:? "documentation"
         <*> o .:? "location"
@@ -133,61 +137,33 @@ instance FromJSON (Ref ()) where
         <*> o .:? "exception" .!= False
         <*> o .:? "fault"     .!= False
 
-data List a = List
+data List = List
     { _listDocumentation :: Maybe Doc
-    , _listMember        :: Ref a
-    , _listMin           :: Int
+    , _listMember        :: Ref
+    , _listMin           :: Maybe Int
     , _listMax           :: Maybe Int
-    , _listFlattened     :: Bool
+    , _listFlattened     :: Maybe Bool
     , _listLocationName  :: Maybe Text
     } deriving (Eq, Show)
 
-instance FromJSON (List ()) where
-    parseJSON = withObject "list" $ \o -> List
-        <$> o .:? "documentation"
-        <*> o .:  "member"
-        <*> o .:? "min"       .!= 0
-        <*> o .:? "max"
-        <*> o .:? "flattened" .!= False
-        <*> o .:? "locationName"
-
-data Map a = Map
+data Map = Map
     { _mapDocumentation :: Maybe Doc
-    , _mapKey           :: Ref a
-    , _mapValue         :: Ref a
-    , _mapMin           :: Int
+    , _mapKey           :: Ref
+    , _mapValue         :: Ref
+    , _mapMin           :: Maybe Int
     , _mapMax           :: Maybe Int
-    , _mapFlattened     :: Bool
+    , _mapFlattened     :: Maybe Bool
     } deriving (Eq, Show)
 
-instance FromJSON (Map ()) where
-    parseJSON = withObject "map" $ \o -> Map
-        <$> o .:? "documentation"
-        <*> o .:  "key"
-        <*> o .:  "value"
-        <*> o .:? "min"       .!= 0
-        <*> o .:? "max"
-        <*> o .:? "flattened" .!= False
-
-data Struct a = Struct
+data Struct = Struct
     { _structDocumentation :: Maybe Doc
-    , _structRequired      :: HashSet (CI Text)
+    , _structRequired      :: Maybe [Text]
+    , _structMembers       :: OrdMap Ref
     , _structPayload       :: Maybe Text
     , _structXmlNamespace  :: Maybe XMLNS
-    , _structException     :: Bool
-    , _structFault         :: Bool
-    , _structMembers       :: OrdMap Member (Ref a)
+    , _structException     :: Maybe Bool
+    , _structFault         :: Maybe Bool
     } deriving (Eq, Show)
-
-instance FromJSON (Struct ()) where
-    parseJSON = withObject "structure" $ \o -> Struct
-        <$> o .:? "documentation"
-        <*> o .:? "required"  .!= mempty
-        <*> o .:? "payload"
-        <*> o .:? "xmlNamespace"
-        <*> o .:? "exception" .!= False
-        <*> o .:? "fault"     .!= False
-        <*> (first member <$> o .:? "members" .!= mempty)
 
 data Chars = Chars
     { _charsDocumentation :: Maybe Doc
@@ -202,20 +178,11 @@ data Chars = Chars
 data Enum = Enum
     { _enumDocumentation :: Maybe Doc
     , _enumLocationName  :: Maybe Text
-    , _enumValues        :: OrdMap Member Text
+    , _enumEnum          :: [Text]
     } deriving (Eq, Show)
 
-instance FromJSON Enum where
-    parseJSON = withObject "enum" $ \o -> Enum
-        <$> o .:? "documentation"
-        <*> o .:? "locationName"
-        <*> (omap <$> o .: "enum")
-      where
-        omap = OrdMap.fromList
-             . map (first (member . constructor) . join (,))
-
 data Blob = Blob
-    { _blobDocumentation :: Maybe Doc
+    { _blobDocumentation :: Maybe Text
     , _blobSensitive     :: Maybe Bool
     , _blobStreaming     :: Maybe Bool
     } deriving (Eq, Show)
@@ -237,27 +204,21 @@ data Number a = Number
     , _numBox           :: Maybe Bool
     } deriving (Eq, Show)
 
+deriveFromJSON defaults ''List
+deriveFromJSON defaults ''Map
+deriveFromJSON defaults ''Struct
 deriveFromJSON defaults ''Chars
+deriveFromJSON defaults ''Enum
 deriveFromJSON defaults ''Blob
 deriveFromJSON defaults ''Boolean
 deriveFromJSON defaults ''Time
 deriveFromJSON defaults ''Number
 
-makeLenses ''List
-makeLenses ''Map
-makeLenses ''Struct
-makeLenses ''Chars
-makeLenses ''Enum
-makeLenses ''Blob
-makeLenses ''Boolean
-makeLenses ''Time
-makeLenses ''Number
-
 -- | The sum of all possible types.
-data Shape a
-    = SList   (List   a)
-    | SMap    (Map    a)
-    | SStruct (Struct a)
+data Shape
+    = SList   List
+    | SMap    Map
+    | SStruct Struct
     | SString Chars
     | SEnum   Enum
     | SBlob   Blob
@@ -270,7 +231,7 @@ data Shape a
 
 makePrisms ''Shape
 
-instance FromJSON (Shape ()) where
+instance FromJSON Shape where
     parseJSON = withObject "shape" $ \o -> do
         let f g = g <$> parseJSON (Object o)
         o .: "type" >>= \case
@@ -287,52 +248,6 @@ instance FromJSON (Shape ()) where
             "long"      -> f SLong
             e           -> fail ("Unknown Shape type: " ++ Text.unpack e)
 
-references :: Traversal (Shape a) (Shape b) (Ref a) (Ref b)
-references f = \case
-    SList   x -> list   x <$> f (_listMember x)
-    SMap    x -> hmap   x <$> f (_mapKey x) <*> f (_mapValue x)
-    SStruct x -> struct x <$> traverse g (_structMembers x)
-    SString x -> pure (SString x)
-    SEnum   x -> pure (SEnum   x)
-    SBlob   x -> pure (SBlob   x)
-    SBool   x -> pure (SBool   x)
-    STime   x -> pure (STime   x)
-    SInt    x -> pure (SInt    x)
-    SDouble x -> pure (SDouble x)
-    SLong   x -> pure (SLong   x)
-  where
-    g x = f x -- trace (show (_refShape x)) (f x)
-
-    list   x m   = SList   $ x { _listMember = m }
-    hmap   x k v = SMap    $ x { _mapKey = k, _mapValue = v}
-    struct x ms  = SStruct $ x { _structMembers = ms }
-
-documentation :: Lens' (Shape a) (Maybe Doc)
-documentation f = \case
-    SList   x -> SList   <$> listDocumentation   f x
-    SMap    x -> SMap    <$> mapDocumentation    f x
-    SStruct x -> SStruct <$> structDocumentation f x
-    SString x -> SString <$> charsDocumentation  f x
-    SEnum   x -> SEnum   <$> enumDocumentation   f x
-    SBlob   x -> SBlob   <$> blobDocumentation   f x
-    SBool   x -> SBool   <$> boolDocumentation   f x
-    STime   x -> STime   <$> timeDocumentation   f x
-    SInt    x -> SInt    <$> numDocumentation    f x
-    SDouble x -> SDouble <$> numDocumentation    f x
-    SLong   x -> SLong   <$> numDocumentation    f x
-
-constraints :: Shape a -> HashSet Constraint
-constraints = \case
-    SString _ -> [CEq, COrd, CRead, CShow, CGeneric, CIsString]
-    SEnum   _ -> [CEq, COrd, CEnum, CRead, CShow, CGeneric]
-    SBlob   _ -> [CGeneric]
-    SBool   _ -> [CEq, COrd, CEnum, CRead, CShow, CGeneric]
-    STime   _ -> [CEq, COrd, CRead, CShow, CGeneric]
-    SInt    _ -> [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
-    SDouble _ -> [CEq, COrd, CEnum, CRead, CShow, CNum, CReal, CRealFrac, CRealFloat]
-    SLong   _ -> [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
-    _         -> mempty
-
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP
     { _httpMethod     :: !Method
@@ -343,19 +258,19 @@ data HTTP = HTTP
 deriveFromJSON camel ''HTTP
 
 -- | An individual service opereration.
-data Operation a = Operation
+data Operation = Operation
     { _operName             :: !Text
     , _operDocumentation    :: Maybe Doc
     , _operDocumentationUrl :: Maybe Text
     , _operHttp             :: !HTTP
-    , _operInput            :: Maybe a
-    , _operOutput           :: Maybe a
-    , _operErrors           :: [a]
+    , _operInput            :: Maybe Ref
+    , _operOutput           :: Maybe Ref
+    , _operErrors           :: [Ref]
     } deriving (Eq, Show)
 
 makeLenses ''Operation
 
-instance FromJSON (Operation (Ref ())) where
+instance FromJSON Operation where
     parseJSON = withObject "operation" $ \o -> Operation
         <$> o .:  "name"
         <*> o .:? "documentation"
@@ -402,29 +317,27 @@ data Metadata = Metadata
 makeClassy ''Metadata
 deriveFromJSON camel ''Metadata
 
-svcName, svcAbbrev :: HasMetadata a => Getter a Text
-svcName   = metaServiceFullName     . to nameToText
-svcAbbrev = metaServiceAbbreviation . to abbrevToText
-
-data Service a b = Service
+data Service = Service
     { _svcMetadata         :: !Metadata
-    , _svcLibrary          :: !Text
     , _svcDocumentation    :: !Doc
     , _svcDocumentationUrl :: !Text
-    , _svcOperations       :: TextMap (Operation b)
-    , _svcShapes           :: TextMap a
+    , _svcOperations       :: HashMap Text Operation
+    , _svcShapes           :: HashMap Text Shape
     , _svcOverride         :: !Override
     } deriving (Eq, Show)
 
-makeClassy ''Service
+makeLenses ''Service
 
-instance HasMetadata (Service a b) where metadata = svcMetadata
-instance HasOverride (Service a b) where override = svcOverride
+instance HasMetadata Service where metadata = svcMetadata
+instance HasOverride Service where override = svcOverride
 
-instance FromJSON (Service (Untyped Shape) (Untyped Ref)) where
+svcName, svcAbbrev :: Getter Service Text
+svcName   = metaServiceFullName     . to nameToText
+svcAbbrev = metaServiceAbbreviation . to abbrevToText
+
+instance FromJSON Service where
     parseJSON = withObject "service" $ \o -> Service
         <$> o .:  "metadata"
-        <*> o .:  "library"
         <*> o .:  "documentation"
         <*> o .:? "documentationUrl" .!= mempty -- FIXME: temporarily defaulted
         <*> o .:  "operations"

@@ -1,9 +1,6 @@
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE ViewPatterns          #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns      #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -20,26 +17,40 @@
 module Gen.JSON where
 
 import           Control.Error
-import           Control.Monad
 import           Control.Monad.Except
-import qualified Data.Aeson           as Aeson
-import qualified Data.Aeson.Types     as Aeson
+import qualified Data.Aeson           as A
 import           Data.ByteString      (ByteString)
 import           Data.Function        (on)
-import qualified Data.HashMap.Strict  as Map
 import           Data.Jason.Types
 import           Data.List
 import           Data.Monoid
-import           Data.Text            (Text)
 
-def :: MonadError e m => Text -> m Object -> m Object
+-- requireObject :: (Monad m, FromJSON a) => ByteString -> EitherT String m a
+-- requireObject = loadObject >=> either (throwError "Unable to") return
+
+-- hoistEither (eitherDecode' . LBS.fromStrict bs)
+
+-- required :: ByteString -> EitherT String
+
+-- optionalObject :: Text -> ByteString -> Script Object
+-- optionalObject k p = either (const obj) id <$> loadObject p
+--   where
+--     obj = mkObject [(k, Object mempty)]
+
+--def :: Text -> m a -> m Object
 def k = flip catchError (const . return $ mkObject [(k, Object mempty)])
+
+-- loadObject :: FromJSON a => FilePath -> EitherT String m a
+-- loadObject p = scriptIO $ do
+--     if b
+--         then eitherDecode' . LBS.fromStrict <$> FS.readFile p
+--         else return . Left $ "Unable to find " ++ show p
 
 parse :: FromJSON a => Object -> Either String a
 parse = parseEither parseJSON . Object
 
-merge :: [Object] -> Object
-merge = foldl' go mempty
+mergeObjects :: [Object] -> Object
+mergeObjects = foldl' go mempty
   where
     go :: Object -> Object -> Object
     go (unObject -> a) (unObject -> b) = mkObject (assoc value a b)
@@ -55,3 +66,8 @@ merge = foldl' go mempty
       where
         g (k, x) | Just y <- lookup k ys = (k, f x y)
                  | otherwise             = (k, x)
+
+-- toEnv :: (Show a, A.ToJSON a) => a -> Script A.Object
+-- toEnv (A.toJSON -> A.Object o) = right o
+-- toEnv e                        = left $
+--     "Failed to extract JSON Object from: " ++ show e
