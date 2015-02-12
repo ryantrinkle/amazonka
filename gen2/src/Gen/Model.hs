@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
--- Module      : Khan.Gen.Model
+-- Module      : Gen.Model
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
@@ -13,26 +13,29 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 
-module Khan.Gen.Model
-   ( module Khan.Gen.Model
+module Gen.Model
+   ( module Gen.Model
    , module Model
    ) where
 
 import           Control.Applicative
 import           Control.Lens
-import           Data.HashMap.Strict      (HashMap)
+import           Data.HashMap.Strict (HashMap)
 import           Data.Jason
-import           Data.Jason.Types         (mkObject, unObject)
+import           Data.Jason.Types    (mkObject, unObject)
 import           Data.Monoid
-import           Data.Text                (Text)
-import qualified Data.Text                as Text
-import           Khan.Gen.Model.Index     as Model
-import           Khan.Gen.Model.Paginator as Model
-import           Khan.Gen.Model.Retrier   as Model
-import           Khan.Gen.Model.URI       as Model
-import           Khan.Gen.Model.Waiter    as Model
-import           Khan.Gen.TH
-import           Khan.Gen.Types
+import           Data.Text           (Text)
+import qualified Data.Text           as Text
+import           Gen.Doc
+import           Gen.Model.Index     as Model
+import           Gen.Model.Paginator as Model
+import           Gen.Model.Retrier   as Model
+import           Gen.Model.URI       as Model
+import           Gen.Model.Waiter    as Model
+import           Gen.Text
+import           Gen.TH
+import           Gen.Types
+import           Prelude             hiding (Enum)
 
 data Method
     = GET
@@ -83,7 +86,7 @@ data Checksum
     | SHA256
       deriving (Eq, Show)
 
-deriveFromJSON spinal ''Checksum
+deriveFromJSON lower ''Checksum
 
 data Location
     = Headers
@@ -94,7 +97,7 @@ data Location
     | Body
       deriving (Eq, Show)
 
-deriveFromJSON spinal ''Location
+deriveFromJSON camel ''Location
 
 data XMLNS = XMLNS
     { _xnsPrefix :: !Text
@@ -102,13 +105,13 @@ data XMLNS = XMLNS
     } deriving (Eq, Show)
 
 makeLenses ''XMLNS
-deriveFromJSON spinal ''XMLNS
+deriveFromJSON camel ''XMLNS
 
 -- | A reference to a 'Shape', plus any additional annotations
 -- specific to the point at which the type is de/serialised.
 data Ref = Ref
     { _refShape         :: !Text
-    , _refDocumentation :: Maybe Text
+    , _refDocumentation :: Maybe Doc
     , _refLocation      :: Maybe Location
     , _refLocationName  :: Maybe Text
     , _refStreaming     :: !Bool
@@ -135,71 +138,81 @@ instance FromJSON Ref where
         <*> o .:? "fault"     .!= False
 
 data List = List
-    { _listDocumentation :: Maybe Text
+    { _listDocumentation :: Maybe Doc
     , _listMember        :: Ref
-    , _listMin           :: !Int
+    , _listMin           :: Maybe Int
     , _listMax           :: Maybe Int
-    , _listFlattened     :: !Bool
+    , _listFlattened     :: Maybe Bool
     , _listLocationName  :: Maybe Text
     } deriving (Eq, Show)
 
 data Map = Map
-    { _mapDocumentation :: Maybe Text
+    { _mapDocumentation :: Maybe Doc
     , _mapKey           :: Ref
     , _mapValue         :: Ref
-    , _mapMin           :: !Int
+    , _mapMin           :: Maybe Int
     , _mapMax           :: Maybe Int
-    , _mapFlattened     :: !Bool
+    , _mapFlattened     :: Maybe Bool
     } deriving (Eq, Show)
 
 data Struct = Struct
-    { _structDocumentation :: Maybe Text
-    , _structRequired      :: [Text]
+    { _structDocumentation :: Maybe Doc
+    , _structRequired      :: Maybe [Text]
     , _structMembers       :: OrdMap Ref
     , _structPayload       :: Maybe Text
     , _structXmlNamespace  :: Maybe XMLNS
-    , _structException     :: !Bool
-    , _structFault         :: !Bool
+    , _structException     :: Maybe Bool
+    , _structFault         :: Maybe Bool
     } deriving (Eq, Show)
 
 data Chars = Chars
-    { _charsDocumentation :: Maybe Text
-    , _charsMin           :: !Int
+    { _charsDocumentation :: Maybe Doc
+    , _charsMin           :: Maybe Int
     , _charsMax           :: Maybe Int
     , _charsPattern       :: Maybe Text
-    , _charsXmlAttribute  :: !Bool
+    , _charsXmlAttribute  :: Maybe Bool
     , _charsLocationName  :: Maybe Text
-    , _charsSensitive     :: !Bool
+    , _charsSensitive     :: Maybe Bool
     } deriving (Eq, Show)
 
 data Enum = Enum
-    { _enumDoc          :: Maybe Text
-    , _enumLocationName :: Maybe Text
-    , _enumEnum         :: [Text]
-    }
+    { _enumDocumentation :: Maybe Doc
+    , _enumLocationName  :: Maybe Text
+    , _enumEnum          :: [Text]
+    } deriving (Eq, Show)
 
 data Blob = Blob
-    { _blobDoc       :: Maybe Text
-    , _blobSensitive :: !Bool
-    , _blobStreaming :: !Bool
+    { _blobDocumentation :: Maybe Text
+    , _blobSensitive     :: Maybe Bool
+    , _blobStreaming     :: Maybe Bool
     } deriving (Eq, Show)
 
 data Boolean = Boolean
-    { _boolDocumentation :: Maybe Text
-    , _boolBox           :: !Bool
+    { _boolDocumentation :: Maybe Doc
+    , _boolBox           :: Maybe Bool
     } deriving (Eq, Show)
 
 data Time = Time
-    { _timeDocumentation   :: Maybe Text
-    , _timeTimestampFormat :: !Timestamp
+    { _timeDocumentation   :: Maybe Doc
+    , _timeTimestampFormat :: Maybe Timestamp
     } deriving (Eq, Show)
 
 data Number a = Number
-    { _numDocumentation :: Maybe Text
-    , _numMin           :: !a
+    { _numDocumentation :: Maybe Doc
+    , _numMin           :: Maybe a
     , _numMax           :: Maybe a
-    , _numBox           :: !Bool
+    , _numBox           :: Maybe Bool
     } deriving (Eq, Show)
+
+deriveFromJSON defaults ''List
+deriveFromJSON defaults ''Map
+deriveFromJSON defaults ''Struct
+deriveFromJSON defaults ''Chars
+deriveFromJSON defaults ''Enum
+deriveFromJSON defaults ''Blob
+deriveFromJSON defaults ''Boolean
+deriveFromJSON defaults ''Time
+deriveFromJSON defaults ''Number
 
 -- | The sum of all possible types.
 data Shape
@@ -207,6 +220,7 @@ data Shape
     | SMap    Map
     | SStruct Struct
     | SString Chars
+    | SEnum   Enum
     | SBlob   Blob
     | SBool   Boolean
     | STime   Time
@@ -217,6 +231,23 @@ data Shape
 
 makePrisms ''Shape
 
+instance FromJSON Shape where
+    parseJSON = withObject "shape" $ \o -> do
+        let f g = g <$> parseJSON (Object o)
+        o .: "type" >>= \case
+            "list"      -> f SList
+            "map"       -> f SMap
+            "structure" -> f SStruct
+            "string"    -> f SEnum <|> f SString
+            "blob"      -> f SBlob
+            "boolean"   -> f SBool
+            "timestamp" -> f STime
+            "integer"   -> f SInt
+            "float"     -> f SDouble
+            "double"    -> f SDouble
+            "long"      -> f SLong
+            e           -> fail ("Unknown Shape type: " ++ Text.unpack e)
+
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP
     { _httpMethod     :: !Method
@@ -224,12 +255,12 @@ data HTTP = HTTP
     , _httpStatus     :: Maybe Int
     } deriving (Eq, Show)
 
-deriveFromJSON spinal ''HTTP
+deriveFromJSON camel ''HTTP
 
 -- | An individual service opereration.
 data Operation = Operation
     { _operName             :: !Text
-    , _operDocumentation    :: Maybe Text
+    , _operDocumentation    :: Maybe Doc
     , _operDocumentationUrl :: Maybe Text
     , _operHttp             :: !HTTP
     , _operInput            :: Maybe Ref
@@ -249,17 +280,23 @@ instance FromJSON Operation where
         <*> o .:? "output"
         <*> o .:? "errors" .!= mempty
 
-newtype Name = Name Text
+newtype Name = Name { nameToText :: Text }
     deriving (Eq, Show)
 
 instance FromJSON Name where
-    parseJSON = withText "name" $ pure . Name
+    parseJSON = withText "name" (pure . Name . f)
+      where
+        f = ("Amazon " <>)
+          . (<> " Service")
+          . stripPrefix "Amazon"
+          . stripPrefix "AWS"
+          . stripSuffix "Service"
 
-newtype Abbrev = Abbrev Text
+newtype Abbrev = Abbrev { abbrevToText :: Text }
     deriving (Eq, Show)
 
 instance FromJSON Abbrev where
-    parseJSON = withText "abbrev" $ pure . Abbrev
+    parseJSON = withText "abbrev" (pure . Abbrev)
 
 -- | Top-level service metadata.
 data Metadata = Metadata
@@ -278,16 +315,15 @@ data Metadata = Metadata
     } deriving (Eq, Show)
 
 makeClassy ''Metadata
-deriveFromJSON spinal ''Metadata
+deriveFromJSON camel ''Metadata
 
 data Service = Service
     { _svcMetadata         :: !Metadata
-    , _svcDocumentation    :: !Text
+    , _svcDocumentation    :: !Doc
     , _svcDocumentationUrl :: !Text
     , _svcOperations       :: HashMap Text Operation
-    , _svcShapes           :: HashMap Text Object
+    , _svcShapes           :: HashMap Text Shape
     , _svcOverride         :: !Override
-    , _svcName             :: !Text
     } deriving (Eq, Show)
 
 makeLenses ''Service
@@ -295,7 +331,11 @@ makeLenses ''Service
 instance HasMetadata Service where metadata = svcMetadata
 instance HasOverride Service where override = svcOverride
 
-instance FromJSON (Text -> Service) where
+svcName, svcAbbrev :: Getter Service Text
+svcName   = metaServiceFullName     . to nameToText
+svcAbbrev = metaServiceAbbreviation . to abbrevToText
+
+instance FromJSON Service where
     parseJSON = withObject "service" $ \o -> Service
         <$> o .:  "metadata"
         <*> o .:  "documentation"

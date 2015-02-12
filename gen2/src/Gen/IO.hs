@@ -2,7 +2,7 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- Module      : Khan.Gen.IO
+-- Module      : Gen.IO
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
@@ -12,7 +12,7 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 
-module Khan.Gen.IO where
+module Gen.IO where
 
 import           Control.Applicative
 import           Control.Error
@@ -36,9 +36,9 @@ import qualified Data.Text.IO              as Text
 import qualified Data.Text.Lazy.IO         as LText
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
-import           Khan.Gen.JSON
-import           Khan.Gen.Model
-import           Khan.Gen.Types
+import           Gen.JSON
+import           Gen.Model
+import           Gen.Types
 import           Prelude                   hiding (FilePath)
 import           Text.EDE                  (Template)
 import qualified Text.EDE                  as EDE
@@ -48,24 +48,32 @@ import qualified Text.EDE                  as EDE
 
 -- Change namespace from Khan to just Gen again
 
-requireObject :: FromJSON a => FilePath -> Script a
-requireObject p = loadObject p >>= either (failure p) return
+-- requireObject :: FromJSON a => FilePath -> Script a
+-- requireObject p = loadObject p >>= either (failure p) return
 
-optionalObject :: Text -> FilePath -> Script Object
-optionalObject k p = either (const obj) id <$> loadObject p
-  where
-    obj = mkObject [(k, Object mempty)]
+-- optionalObject :: Text -> FilePath -> Script Object
+-- optionalObject k p = either (const obj) id <$> loadObject p
+--   where
+--     obj = mkObject [(k, Object mempty)]
 
-loadObject :: FromJSON a => FilePath -> Script (Either String a)
-loadObject p = scriptIO $ do
-    say "Load Object" (encode p)
-    b <- FS.isFile p
+-- loadObject :: FromJSON a => FilePath -> Script (Either String a)
+-- loadObject p = scriptIO $ do
+--     say "Load Object" (encode p)
+--     b <- FS.isFile p
+--     if b
+--         then eitherDecode' . LBS.fromStrict <$> FS.readFile p
+--         else return . Left $ "Unable to find " ++ show p
+
+-- failure :: FilePath -> String -> Script a
+-- failure p msg = throwError $ msg <> " in " <> Text.unpack (encode p)
+
+contents :: FilePath -> Script LBS.ByteString
+contents p = do
+    say "Read File" (encode p)
+    b <- scriptIO (FS.isFile p)
     if b
-        then eitherDecode' . LBS.fromStrict <$> FS.readFile p
-        else return . Left $ "Unable to find " ++ show p
-
-failure :: FilePath -> String -> Script a
-failure p msg = throwError $ msg <> " in " <> Text.unpack (encode p)
+        then LBS.fromStrict <$> scriptIO (FS.readFile p)
+        else throwError $ "Unable to find " ++ show p
 
 say :: MonadIO m => Text -> Text -> m ()
 say x msg = liftIO . Text.putStrLn $ "[ " <> y <> "] " <> msg
@@ -114,8 +122,3 @@ say x msg = liftIO . Text.putStrLn $ "[ " <> y <> "] " <> msg
 --       | otherwise = x
 
 --     n = 17 - Text.length x
-
-dots :: String -> Bool
-dots "."  = False
-dots ".." = False
-dots _    = True

@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- Module      : Khan.Gen.Text
+-- Module      : Gen.Text
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
@@ -10,7 +10,7 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 
-module Khan.Gen.Text where
+module Gen.Text where
 
 import           Control.Applicative
 import           Control.Lens
@@ -20,6 +20,7 @@ import           Data.Char
 import           Data.Foldable         (foldl')
 import           Data.HashSet          (HashSet)
 import qualified Data.HashSet          as Set
+import           Data.Maybe
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
 import           Data.Text.ICU         (Regex)
@@ -30,13 +31,19 @@ import           Data.Text.Manipulate
 asText :: (Text -> Text) -> String -> String
 asText f = Text.unpack . f . Text.pack
 
+dropLower :: Text -> Text
+dropLower = Text.dropWhile (not . isUpper)
+
 stripLens :: Text -> Text
 stripLens t
     | "_" `Text.isPrefixOf` t = lowerHead (dropLower t)
     | otherwise               = t
 
-dropLower :: Text -> Text
-dropLower = Text.dropWhile (not . isUpper)
+stripPrefix :: Text -> Text -> Text
+stripPrefix p t = Text.strip . fromMaybe t $ p `Text.stripPrefix` t
+
+stripSuffix :: Text -> Text -> Text
+stripSuffix p t = Text.strip . fromMaybe t $ p `Text.stripSuffix` t
 
 replaceAcronyms :: Text -> Text
 replaceAcronyms x = foldl' (flip (uncurry RE.replaceAll)) x xs

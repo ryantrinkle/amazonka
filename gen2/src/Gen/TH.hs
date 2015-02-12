@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
--- Module      : Khan.Gen.TH
+-- Module      : Gen.TH
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
@@ -11,13 +11,15 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 
-module Khan.Gen.TH
+module Gen.TH
     ( deriveFromJSON
 
     , Options(..)
+    , defaults
     , upper
     , lower
     , spinal
+    , camel
     ) where
 
 import           Control.Applicative
@@ -26,17 +28,18 @@ import           Data.Jason.TH
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
 import           Data.Text.Manipulate
-import           Khan.Gen.Text
+import           Gen.Text
 import           Language.Haskell.TH
 
-upper, lower, spinal :: Options
+upper, lower, spinal, camel :: Options
 upper  = defaults { constructorTagModifier = asText Text.toUpper }
 lower  = defaults { constructorTagModifier = asText Text.toLower }
-spinal = defaults
+spinal = defaults { constructorTagModifier = asText toSpinal }
+camel  = defaults
 
 defaults :: Options
 defaults = defaultOptions
-    { constructorTagModifier = asText toSpinal
+    { constructorTagModifier = asText toCamel
     , fieldLabelModifier     = asText stripLens
     , allNullaryToStringTag  = True
     , sumEncoding            =

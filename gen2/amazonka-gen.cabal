@@ -21,18 +21,19 @@ executable amazonka-gen
     main-is:           Main.hs
 
     other-modules:
-          Khan.Gen.IO
-        , Khan.Gen.JSON
-        , Khan.Gen.Model
-        , Khan.Gen.Model.Endpoint
-        , Khan.Gen.Model.Index
-        , Khan.Gen.Model.Paginator
-        , Khan.Gen.Model.Retrier
-        , Khan.Gen.Model.URI
-        , Khan.Gen.Model.Waiter
-        , Khan.Gen.TH
-        , Khan.Gen.Text
-        , Khan.Gen.Types
+          Gen.Doc
+        , Gen.IO
+        , Gen.JSON
+        , Gen.Model
+        , Gen.Model.Endpoint
+        , Gen.Model.Index
+        , Gen.Model.Paginator
+        , Gen.Model.Retrier
+        , Gen.Model.URI
+        , Gen.Model.Waiter
+        , Gen.TH
+        , Gen.Text
+        , Gen.Types
 
     ghc-options:       -Wall -threaded
 
@@ -44,20 +45,18 @@ executable amazonka-gen
         , bifunctors
         , bytestring
         , case-insensitive
+        , data-default-class
         , ede                  == 0.2.4.*
         , errors
-        , filepath
-        , hashable
         , jason
         , lens                 == 4.5.*
         , mtl
         , optparse-applicative == 0.11.*
-        , parsec
+        , pandoc
         , scientific
         , semver
         , system-fileio
         , system-filepath
-        , tagsoup
         , template-haskell
         , text
         , text-icu

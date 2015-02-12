@@ -12,7 +12,7 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
--- Module      : Khan.Gen.Types
+-- Module      : Gen.Types
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
@@ -22,7 +22,7 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 
-module Khan.Gen.Types where
+module Gen.Types where
 
 import           Control.Applicative
 import           Control.Lens
@@ -43,7 +43,7 @@ import           Data.Text                 (Text)
 import           Data.Traversable          (Traversable)
 import qualified Filesystem.Path.CurrentOS as Path
 import           GHC.TypeLits
-import           Khan.Gen.TH
+import           Gen.TH
 import           Text.EDE                  (Template)
 
 encode :: Path.FilePath -> Text

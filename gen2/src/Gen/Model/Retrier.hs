@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE TemplateHaskell #-}
 
--- Module      : Khan.Gen.Model.Retrier
+-- Module      : Gen.Model.Retrier
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
@@ -11,7 +11,7 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 
-module Khan.Gen.Model.Retrier where
+module Gen.Model.Retrier where
 
 import           Control.Lens
 import           Data.Aeson          (FromJSON)
