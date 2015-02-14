@@ -42,8 +42,8 @@ import           Data.String               (IsString)
 import           Data.Text                 (Text)
 import           Data.Traversable          (Traversable)
 import qualified Filesystem.Path.CurrentOS as Path
-import           GHC.TypeLits
 import           Gen.TH
+import           GHC.TypeLits
 import           Text.EDE                  (Template)
 
 encode :: Path.FilePath -> Text

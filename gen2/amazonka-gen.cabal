@@ -21,7 +21,8 @@ executable amazonka-gen
     main-is:           Main.hs
 
     other-modules:
-          Gen.Doc
+          Gen.AST
+        , Gen.Doc
         , Gen.IO
         , Gen.JSON
         , Gen.Model
@@ -48,6 +49,7 @@ executable amazonka-gen
         , data-default-class
         , ede                  == 0.2.4.*
         , errors
+        , haskell-src-exts     == 1.16.*
         , jason
         , lens                 == 4.5.*
         , mtl
@@ -55,6 +57,7 @@ executable amazonka-gen
         , pandoc
         , scientific
         , semver
+        , stylish-haskell
         , system-fileio
         , system-filepath
         , template-haskell
