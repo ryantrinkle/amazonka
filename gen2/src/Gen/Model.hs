@@ -182,7 +182,7 @@ data Enum = Enum
     } deriving (Eq, Show)
 
 data Blob = Blob
-    { _blobDocumentation :: Maybe Text
+    { _blobDocumentation :: Maybe Doc
     , _blobSensitive     :: Maybe Bool
     , _blobStreaming     :: Maybe Bool
     } deriving (Eq, Show)
@@ -319,6 +319,7 @@ deriveFromJSON camel ''Metadata
 
 data Service = Service
     { _svcMetadata         :: !Metadata
+    , _svcLibrary          :: !Text
     , _svcDocumentation    :: !Doc
     , _svcDocumentationUrl :: !Text
     , _svcOperations       :: HashMap Text Operation
@@ -338,6 +339,7 @@ svcAbbrev = metaServiceAbbreviation . to abbrevToText
 instance FromJSON Service where
     parseJSON = withObject "service" $ \o -> Service
         <$> o .:  "metadata"
+        <*> o .:  "library"
         <*> o .:  "documentation"
         <*> o .:? "documentationUrl" .!= mempty -- FIXME: temporarily defaulted
         <*> o .:  "operations"

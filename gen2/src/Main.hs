@@ -30,8 +30,10 @@ import           Data.Monoid
 import qualified Data.SemVer               as SemVer
 import           Data.String
 import qualified Data.Text                 as Text
+import qualified Data.Text.IO              as Text
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
+import           Gen.AST
 import           Gen.IO
 import           Gen.JSON
 import           Gen.Model
@@ -127,14 +129,17 @@ main = runScript $ do
 
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
---        forM_ (Map.elems $ s ^. svcShapes) $ \x -> do
-        say "Completed" (s ^. svcAbbrev <> " <-> " <> s ^. svcName)
+        forM_ (Map.toList $ s ^. svcShapes) $ \(k, v) ->
+            scriptIO $ either putStrLn Text.putStrLn (declare k v)
 
-    say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
+--        scriptIO $ either putStrLn Text.putStrLn (pretty $ typesModule s)
+--        say "Completed" (s ^. svcName)
+
+--    say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
 service :: FilePath -> FilePath -> Script Service
 service d o = do
-    say "Load Service" (encode d)
+--    say "Load Service" (encode d)
     v <- version
     x <- decode override
     y <- mergeObjects <$> sequence
@@ -163,7 +168,6 @@ service d o = do
 
     name = basename d
 
- -- * Calculate correct/massaged Service.svcName during construction
  -- * Calculate a stable 'amazonka-*' library name per service
  -- * Ensure every shape has documentation (even if 'documentation is missing' string)
  -- * Ensure every ref for a shape has documentation, same as above

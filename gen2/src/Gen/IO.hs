@@ -69,7 +69,7 @@ import qualified Text.EDE                  as EDE
 
 contents :: FilePath -> Script LBS.ByteString
 contents p = do
-    say "Read File" (encode p)
+--    say "Read File" (encode p)
     b <- scriptIO (FS.isFile p)
     if b
         then LBS.fromStrict <$> scriptIO (FS.readFile p)
