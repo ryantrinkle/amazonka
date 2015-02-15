@@ -23,6 +23,8 @@ import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.IO.Class
 import           Control.Monad.State
+import           Data.Either
+import qualified Data.Foldable             as Fold
 import qualified Data.HashMap.Strict       as Map
 import           Data.Jason                (eitherDecode)
 import           Data.List                 (sort)
@@ -31,6 +33,8 @@ import qualified Data.SemVer               as SemVer
 import           Data.String
 import qualified Data.Text                 as Text
 import qualified Data.Text.IO              as Text
+import qualified Data.Text.Lazy.Builder    as Build
+import qualified Data.Text.Lazy.IO         as LText
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
 import           Gen.AST
@@ -128,9 +132,15 @@ main = runScript $ do
         >>= validate
 
     forM_ (o ^. optModels) $ \d -> do
-        s <- service d (o ^. optOverrides)
-        forM_ (Map.toList $ s ^. svcShapes) $ \(k, v) ->
-            scriptIO $ either putStrLn Text.putStrLn (declare k v)
+        s  <- service d (o ^. optOverrides)
+        u  <- instantiate (s ^. svcShapes)
+
+        scriptIO $ mapM_ (print . fst) (Map.elems u)
+
+--        scriptIO . LText.writeFile "test.hs" . Build.toLazyText . Fold.foldMap (<> "\n") $ rights xs
+
+                -- Left  e -> scriptIO (putStrLn e)
+                -- Right x -> LText.putStrLn (Build.toLazyText x)
 
 --        scriptIO $ either putStrLn Text.putStrLn (pretty $ typesModule s)
 --        say "Completed" (s ^. svcName)

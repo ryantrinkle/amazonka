@@ -1,8 +1,10 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE ViewPatterns      #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE RecordWildCards       #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -16,109 +18,181 @@
 
 module Gen.AST where
 
+import           Control.Applicative
+import           Control.Error
 import           Control.Lens
+import           Control.Monad.Error
+import           Control.Monad.Reader
+import           Control.Monad.State
 import           Data.Bifunctor
+import           Data.CaseInsensitive         (CI)
+import qualified Data.Foldable                as Fold
+import           Data.HashMap.Strict          (HashMap)
+import qualified Data.HashMap.Strict          as Map
+import           Data.HashSet                 (HashSet)
+import qualified Data.HashSet                 as Set
 import           Data.Monoid
-import           Data.Text                       (Text)
-import qualified Data.Text                       as Text
-import           Gen.Model
+import           Data.Text                    (Text)
+import qualified Data.Text                    as Text
+import qualified Data.Text.Lazy               as LText
+import qualified Data.Text.Lazy.Builder       as Build
+import           Gen.Model                    hiding (Name)
 import           Gen.Types
-import           Language.Haskell.Exts.Annotated
-import           Language.Haskell.Exts.Pretty    (prettyPrint)
-import qualified Language.Haskell.Stylish        as Style
+import qualified HIndent                      as HIndent
+import           Language.Haskell.Exts
+import           Language.Haskell.Exts.Pretty (prettyPrint)
+import qualified Language.Haskell.Stylish     as Style
 
-pretty :: Pretty a => a -> Either String Text
-pretty = second (Text.unlines . map Text.pack)
-    . Style.runSteps [] Nothing steps
-    . lines
-    . prettyPrint
+-- All renaming, substitution, uniquifying should happen over the original
+-- (boto) AST, also the type level overrides, aka Rules.
+
+-- HashMap Text Shape -> HashMap Text Shape
+-- ^ fold over the original (k,v) constructing a new hashmap by recursively solving.
+
+override :: HashMap Text Rules -> HashMap Text Shape -> HashMap Text Shape
+override o = undefined -- flip (Map.foldlWithKey' go)
   where
-    steps =
-        [ Style.languagePragmas 80 Style.Vertical True
-        , Style.imports 80 Style.Global
-        , Style.records
-        ]
-
-data Meta = Meta Text Text
-    deriving (Eq, Show)
-
-instance SrcInfo Meta where
-    toSrcInfo _ _ _ = Meta mempty mempty
-    fromSrcInfo     = const (Meta mempty mempty)
-    fileName        = const "gen"
-    startLine       = const 0
-    startColumn     = const 0
-
--- data DLens = DLens (Decl Meta) (Decl Meta)
--- data DType = DType (Decl Meta)
--- data DInst = DInst (Decl Meta)
-
-declare :: Text -> Shape -> Either String Text
-declare (Text.unpack -> name) = \case
-    -- SList   x ->
-    -- SMap    x ->
-    SStruct x -> Right . Text.pack . prettyPrint $ struct x
-    -- SString x ->
-    -- SEnum   x ->
-    -- SBlob   x ->
-    -- SBool   x ->
-    -- STime   x ->
-    -- SInt    x ->
-    -- SDouble x ->
-    -- SLong   x ->
-
-    _ -> Left ""
-  where
-    struct :: Struct -> Decl Meta
-    struct Struct{..} = record (fields _structMembers) (derive ["Eq", "Show"])
-
-    record :: [FieldDecl Meta] -> Maybe (Deriving Meta) -> Decl Meta
-    record fs = DataDecl m s Nothing (DHead m n) ctor
+    go = undefined
       where
-        ctor = [QualConDecl m Nothing Nothing (RecDecl m n fs)]
+    -- go :: HashMap Text Shape -- ^ Accumulator.
+    --    -> Text               -- ^ Shape name.
+    --    -> Rules              -- ^ Rules to apply.
+    --    -> HashMap Text Shape
+    -- go acc k Rules{..} =
+    --       renameTo   k (r ^. oRenameTo)
+    --     . replacedBy k (r ^. oReplacedBy)
+    --     . prefixEnum k (r ^. oSumPrefix)
+    --     . appendEnum k (r ^. oSumValues)
+    --     . Map.adjust (dataFields %~ fld) k
+    --     $ r
+    --   where
+    --     fld = required (r ^. oRequired) (r ^. oOptional)
+    --         . renamed  (r ^. oRenamed)
 
-        s | [_] <- fs = NewType  m
-          | otherwise = DataType m
+    --     shape = id
+    --     field = id
 
-    fields :: OrdMap Ref -> [FieldDecl Meta]
-    fields (ordMap -> fs) = map f fs
-      where
-        f (Text.unpack -> k, Text.unpack . _refShape -> v) =
-            FieldDecl m [Ident m k] (TyCon m (UnQual m (Ident m v)))
+        renameTo       = undefined
+        replacedBy     = undefined
+        prefixEnum     = undefined
+        appendEnum     = undefined
 
-    derive :: [Text] -> Maybe (Deriving Meta)
-    derive [] = Nothing
-    derive ns = Just . Deriving m $ map f ns
-      where
-        f (Text.unpack -> n) =
-            IRule m Nothing Nothing (IHCon m (UnQual m (Ident m n)))
+        requireFields :: Text -> Struct -> Struct
+        requireFields = modifyRequired ruleRequired (<>)
 
-    m = Meta mempty mempty
-    n = Ident m name
+        optionalFields :: Text -> Struct -> Struct
+        optionalFields = modifyRequired ruleOptional (Set.difference)
 
--- lens = [sig, pat]
+        modifyRequired :: Lens' Rules (HashSet (CI Text))
+                       -> (HashSet (CI Text) -> HashSet (CI Text) -> HashSet (CI Text))
+                       -> Text
+                       -> Struct
+                       -> Struct
+        modifyRequired f g k s = fromMaybe s $ do
+            r <- Map.lookup k o
+            let x = r ^. f
+                y = s ^. structRequired
+            return $! s & structRequired ?~ maybe x (`g` x) y
+
+        renameFields   = undefined
+
+uniquify :: HashMap Text Shape -> HashMap Text Shape
+uniquify = undefined
+
+-- pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
+-- pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
 --   where
---     sig = TypeSig l [Ident l "naeRuleAction"] (TyApp l (TyApp l (TyCon l (UnQual l (Ident l "Lens'"))) (TyCon l (UnQual l (Ident l "NetworkAclEntry")))) (TyParen l (TyApp l (TyCon l (UnQual l (Ident l "Maybe"))) (TyCon l (UnQual l (Ident l "RuleAction"))))))
---     pat = PatBind l (PVar l (Ident l "naeRuleAction")) (UnGuardedRhs l (App l (App l (Var l (UnQual l (Ident l "lens"))) (Var l (UnQual l (Ident l "_naeRuleAction")))) (Paren l (Lambda l [PVar l (Ident l "s"),PVar l (Ident l "a")] (RecUpdate l (Var l (UnQual l (Ident l "s"))) [FieldUpdate l (UnQual l (Ident l "_naeRuleAction")) (Var l (UnQual l (Ident l "a")))]))))) Nothing
+--     hoist (Left  e) = throwError (e ++ ": ->" ++ x)
+--     hoist (Right o) = return (Build.toLazyText o)
 
---     l = Meta mempty mempty
+--     x = prettyPrintStyleMode style' mode' d
 
+--     style' = style
+--         { mode           = PageMode
+--         , lineLength     = 80
+--         , ribbonsPerLine = 1.5
+--         }
 
--- datatype = DataDecl l (DataType l) Nothing (DHead l name) [QualConDecl l Nothing Nothing record] (Just derive)
+--     mode' = defaultMode
+--         { spacing = False
+--         , layout  = PPNoLayout
+--         }
+
+-- When prefixing a structs' members you need to retain the unmodified/original
+-- name so the pagination etc lookup can occur
+
+-- -- | Context containing the 'Decl' created from a 'Shape', and the corresponding
+-- -- 'Type' which can be used by 'Ref's to point to the correct declaration.
+-- type Universe = HashMap Text (Type, Decl)
+
+-- typeOf k = fst `liftM` singleton k
+-- declOf k = snd `liftM` singleton k
+
+-- singleton :: (MonadError String m, MonadReader Universe m)
+--           => Text
+--           -> m (Type, Decl)
+-- singleton k = asks (Map.lookup k) >>=
+--     maybe (throwError ("Shape doesn't exist: " ++ Text.unpack k)) return
+
+-- -- | Instantiate the type universe.
+-- instantiate :: (Monad m, MonadError String m)
+--             => HashMap Text Shape
+--             -> m Universe
+-- instantiate ss = Fold.foldrM go mempty (Map.toList ss)
 --   where
---     name = Ident l "Foo"
+--     go (k, v) ts = do
+--         d <- declare k v
+--         t <- solve d
+--         return $! Map.insert k (t, d) ts
 
---     derive = Deriving l
---         [ IRule l Nothing Nothing (IHCon l (UnQual l (Ident l "Eq")))
---         , IRule l Nothing Nothing (IHCon l (UnQual l (Ident l "Show")))
---         ]
+-- solve :: MonadError String m => Decl -> m Type
+-- solve = TyVar (Ident )
 
---     record = RecDecl l ctor fields
+-- -- | Create Haskell AST declaration from a 'Shape'.
+-- declare :: (Monad m, MonadError String m) => Text -> Shape -> m Decl
+-- declare (Text.unpack -> name) = \case
+--     -- SList   x ->
+--     -- SMap    x ->
+--     SStruct x -> return (struct x)
+--     -- SString x ->
+--     -- SEnum   x ->
+--     -- SBlob   x ->
+--     -- SBool   x ->
+--     -- STime   x ->
+--     -- SInt    x ->
+--     -- SDouble x ->
+--     -- SLong   x ->
+--     _ -> throwError $ "Attempting to solve unsupported type: " ++ name
+--   where
+--     struct :: Struct -> Decl
+--     struct Struct{..} = record (fields _structMembers) (derive ["Eq", "Show"])
 
---     ctor = Ident l "Foo"
+--     record :: [([Name], Type)] -> [Deriving] -> Decl
+--     record fs = DataDecl l s [] n [] ctor
+--       where
+--         ctor = [QualConDecl (SrcLoc name 0 10) [] [] (RecDecl n fs)]
 
---     fields = [strict]
+--         s | [_] <- fs = NewType
+--           | otherwise = DataType
 
---     strict = FieldDecl l [Ident l "_barField"] (TyBang l (BangedTy l) (TyCon l (UnQual l (Ident l "Int"))))
+--     fields :: OrdMap Ref -> [([Name], Type)]
+--     fields (ordMap -> fs) = map f fs
+--       where
+--         f (Text.unpack -> k, Text.unpack . _refShape -> v) =
+--             ([Ident k], TyCon (UnQual (Ident v)))
 
---     l = Meta mempty mempty
+--     derive :: [Text] -> [Deriving]
+--     derive = map f
+--       where
+--         f (Text.unpack -> n) = (UnQual (Ident n), [])
+
+--     l = SrcLoc name 0 0
+--     n = Ident name
+
+-- -- lens = [sig, pat]
+-- --   where
+-- --     sig = TypeSig l [Ident l "naeRuleAction"] (TyApp l (TyApp l (TyCon l (UnQual l (Ident l "Lens'"))) (TyCon l (UnQual l (Ident l "NetworkAclEntry")))) (TyParen l (TyApp l (TyCon l (UnQual l (Ident l "Maybe"))) (TyCon l (UnQual l (Ident l "RuleAction"))))))
+-- --     pat = PatBind l (PVar l (Ident l "naeRuleAction")) (UnGuardedRhs l (App l (App l (Var l (UnQual l (Ident l "lens"))) (Var l (UnQual l (Ident l "_naeRuleAction")))) (Paren l (Lambda l [PVar l (Ident l "s"),PVar l (Ident l "a")] (RecUpdate l (Var l (UnQual l (Ident l "s"))) [FieldUpdate l (UnQual l (Ident l "_naeRuleAction")) (Var l (UnQual l (Ident l "a")))]))))) Nothing
+
+-- --     l = mempty mempty
+

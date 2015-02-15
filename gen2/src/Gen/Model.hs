@@ -18,24 +18,27 @@ module Gen.Model
    , module Model
    ) where
 
+
 import           Control.Applicative
 import           Control.Lens
-import           Data.HashMap.Strict (HashMap)
+import           Data.CaseInsensitive (CI)
+import           Data.HashMap.Strict  (HashMap)
+import           Data.HashSet         (HashSet)
 import           Data.Jason
-import           Data.Jason.Types    (mkObject, unObject)
+import           Data.Jason.Types     (mkObject, unObject)
 import           Data.Monoid
-import           Data.Text           (Text)
-import qualified Data.Text           as Text
+import           Data.Text            (Text)
+import qualified Data.Text            as Text
 import           Gen.Doc
-import           Gen.Model.Index     as Model
-import           Gen.Model.Paginator as Model
-import           Gen.Model.Retrier   as Model
-import           Gen.Model.URI       as Model
-import           Gen.Model.Waiter    as Model
+import           Gen.Model.Index      as Model
+import           Gen.Model.Paginator  as Model
+import           Gen.Model.Retrier    as Model
+import           Gen.Model.URI        as Model
+import           Gen.Model.Waiter     as Model
 import           Gen.Text
 import           Gen.TH
 import           Gen.Types
-import           Prelude             hiding (Enum)
+import           Prelude              hiding (Enum)
 
 data Method
     = GET
@@ -157,7 +160,7 @@ data Map = Map
 
 data Struct = Struct
     { _structDocumentation :: Maybe Doc
-    , _structRequired      :: Maybe [Text]
+    , _structRequired      :: Maybe (HashSet (CI Text))
     , _structMembers       :: OrdMap Ref
     , _structPayload       :: Maybe Text
     , _structXmlNamespace  :: Maybe XMLNS
@@ -213,6 +216,16 @@ deriveFromJSON defaults ''Blob
 deriveFromJSON defaults ''Boolean
 deriveFromJSON defaults ''Time
 deriveFromJSON defaults ''Number
+
+makeLenses ''List
+makeLenses ''Map
+makeLenses ''Struct
+makeLenses ''Chars
+makeLenses ''Enum
+makeLenses ''Blob
+makeLenses ''Boolean
+makeLenses ''Time
+makeLenses ''Number
 
 -- | The sum of all possible types.
 data Shape
