@@ -128,7 +128,7 @@ prefix ss = evalState (Map.traverseWithKey (go . attempt) ss) mempty
     go :: [Text] -> Shape -> State (HashMap Text (HashSet Text)) (Prefix Shape)
     go ps s = Prefix <$> next ps (Set.fromList (keys s)) <*> pure s
       where
-        next []     _  = fail "Unable to figure out a prefix"
+        next []     _  = fail "Unable to calculate prefix"
         next (x:xs) ks = do
             m <- gets (Map.lookup x)
             case m of
