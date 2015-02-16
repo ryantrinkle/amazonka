@@ -8,7 +8,6 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE ViewPatterns               #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
@@ -48,13 +47,6 @@ import           Text.EDE                  (Template)
 
 encode :: Path.FilePath -> Text
 encode = either id id . Path.toText
-
-data OrdMap a = OrdMap { ordMap :: [(Text, a)] }
-    deriving (Eq, Functor, Foldable, Traversable, Show)
-
-instance FromJSON a => FromJSON (OrdMap a) where
-    parseJSON = withObject "ordered_map" $ \(unObject -> o) ->
-        OrdMap <$> traverse (\(k, v) -> (k,) <$> parseJSON v) o
 
 data Rules = Rules
     { _ruleRenameTo   :: Maybe Text             -- ^ Rename type

@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE TupleSections         #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -26,22 +27,27 @@ import           Control.Monad.Reader
 import           Control.Monad.State
 import           Data.Bifunctor
 import           Data.CaseInsensitive         (CI)
+import qualified Data.CaseInsensitive         as CI
 import qualified Data.Foldable                as Fold
 import           Data.HashMap.Strict          (HashMap)
 import qualified Data.HashMap.Strict          as Map
 import           Data.HashSet                 (HashSet)
 import qualified Data.HashSet                 as Set
+import           Data.List                    (findIndex)
 import           Data.Monoid
 import           Data.Text                    (Text)
 import qualified Data.Text                    as Text
 import qualified Data.Text.Lazy               as LText
 import qualified Data.Text.Lazy.Builder       as Build
 import           Gen.Model                    hiding (Name)
+import           Gen.OrdMap                   (OrdMap)
+import qualified Gen.OrdMap                   as OrdMap
 import           Gen.Types
 import qualified HIndent                      as HIndent
 import           Language.Haskell.Exts
 import           Language.Haskell.Exts.Pretty (prettyPrint)
 import qualified Language.Haskell.Stylish     as Style
+import           Prelude                      hiding (Enum)
 
 -- All renaming, substitution, uniquifying should happen over the original
 -- (boto) AST, also the type level overrides, aka Rules.
@@ -52,7 +58,7 @@ import qualified Language.Haskell.Stylish     as Style
 override :: HashMap Text Rules -> HashMap Text Shape -> HashMap Text Shape
 override o = undefined -- flip (Map.foldlWithKey' go)
   where
-    go = undefined
+    go Rules{..} = undefined
       where
     -- go :: HashMap Text Shape -- ^ Accumulator.
     --    -> Text               -- ^ Shape name.
@@ -72,29 +78,52 @@ override o = undefined -- flip (Map.foldlWithKey' go)
     --     shape = id
     --     field = id
 
-        renameTo       = undefined
-        replacedBy     = undefined
-        prefixEnum     = undefined
-        appendEnum     = undefined
+        -- Take all the rules, and build a list of rename/replace mappings,
+        -- and use this in the 'renameFields' step below if more efficient
 
-        requireFields :: Text -> Struct -> Struct
-        requireFields = modifyRequired ruleRequired (<>)
+        prefixEnum :: Enum -> Enum
+        prefixEnum e = fromMaybe e $ do
+            p <- _ruleEnumPrefix
+            return $! e
+                & enumValues
+                %~ Map.fromList . map (first (p <>)) . Map.toList
 
-        optionalFields :: Text -> Struct -> Struct
-        optionalFields = modifyRequired ruleOptional (Set.difference)
+        appendEnum :: Enum -> Enum
+        appendEnum = enumValues %~ mappend _ruleEnumValues
 
-        modifyRequired :: Lens' Rules (HashSet (CI Text))
-                       -> (HashSet (CI Text) -> HashSet (CI Text) -> HashSet (CI Text))
-                       -> Text
-                       -> Struct
-                       -> Struct
-        modifyRequired f g k s = fromMaybe s $ do
-            r <- Map.lookup k o
-            let x = r ^. f
-                y = s ^. structRequired
-            return $! s & structRequired ?~ maybe x (`g` x) y
+        requireFields :: Struct -> Struct
+        requireFields = structRequired %~ (<> _ruleRequired)
 
-        renameFields   = undefined
+        optionalFields :: Struct -> Struct
+        optionalFields = structRequired %~ (`Set.difference` _ruleRequired)
+
+        updateFields :: Struct -> Struct
+        updateFields = structMembers %~ OrdMap.map go
+          where
+            go :: Member -> Ref -> (Member, Ref)
+            go k v =
+                ( rename k
+                , retype replacedBy . retype renamedTo $ v
+                )
+
+            rename :: Member -> Member
+            rename k = fromMaybe k $ do
+                n <- Map.lookup (k ^. memOriginal) _ruleRenamed
+                return (k & memName .~ n)
+
+            retype :: HashMap Text Text -> Ref -> Ref
+            retype m v = maybe v (\x -> v & refShape .~ x) $
+                Map.lookup (v ^. refShape) m
+
+    renamedTo :: HashMap Text Text
+    renamedTo = buildMapping _ruleRenameTo
+
+    replacedBy :: HashMap Text Text
+    replacedBy = buildMapping _ruleReplacedBy
+
+    buildMapping :: (Rules -> Maybe Text) -> HashMap Text Text
+    buildMapping f = Map.fromList $
+        mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
 
 uniquify :: HashMap Text Shape -> HashMap Text Shape
 uniquify = undefined

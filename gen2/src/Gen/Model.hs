@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TupleSections     #-}
 
 -- Module      : Gen.Model
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -18,11 +19,15 @@ module Gen.Model
    , module Model
    ) where
 
-
 import           Control.Applicative
 import           Control.Lens
+import           Control.Monad
+import           Data.Bifunctor
 import           Data.CaseInsensitive (CI)
+import qualified Data.CaseInsensitive as CI
+import           Data.Function        (on)
 import           Data.HashMap.Strict  (HashMap)
+import qualified Data.HashMap.Strict  as Map
 import           Data.HashSet         (HashSet)
 import           Data.Jason
 import           Data.Jason.Types     (mkObject, unObject)
@@ -35,6 +40,8 @@ import           Gen.Model.Paginator  as Model
 import           Gen.Model.Retrier    as Model
 import           Gen.Model.URI        as Model
 import           Gen.Model.Waiter     as Model
+import           Gen.OrdMap           (OrdMap)
+import qualified Gen.OrdMap           as OrdMap
 import           Gen.Text
 import           Gen.TH
 import           Gen.Types
@@ -158,15 +165,38 @@ data Map = Map
     , _mapFlattened     :: Maybe Bool
     } deriving (Eq, Show)
 
+data Member = Member
+    { _memPrefix   :: Text
+    , _memOriginal :: CI Text
+    , _memName     :: Text
+    } deriving (Show)
+
+instance Eq Member where
+    (==) = on (==) _memName
+
+makeLenses ''Member
+
 data Struct = Struct
     { _structDocumentation :: Maybe Doc
-    , _structRequired      :: Maybe (HashSet (CI Text))
-    , _structMembers       :: OrdMap Ref
+    , _structRequired      :: HashSet (CI Text)
     , _structPayload       :: Maybe Text
     , _structXmlNamespace  :: Maybe XMLNS
     , _structException     :: Maybe Bool
     , _structFault         :: Maybe Bool
+    , _structMembers       :: OrdMap Member Ref
     } deriving (Eq, Show)
+
+instance FromJSON Struct where
+    parseJSON = withObject "structure" $ \o -> Struct
+        <$> o .:? "documentation"
+        <*> o .:? "required" .!= mempty
+        <*> o .:? "payload"
+        <*> o .:? "xmlNamespace"
+        <*> o .:? "exception"
+        <*> o .:? "fault"
+        <*> (keys <$> o .:? "members" .!= mempty)
+      where
+        keys = OrdMap.map (\k -> (Member mempty (CI.mk k) k,))
 
 data Chars = Chars
     { _charsDocumentation :: Maybe Doc
@@ -181,8 +211,16 @@ data Chars = Chars
 data Enum = Enum
     { _enumDocumentation :: Maybe Doc
     , _enumLocationName  :: Maybe Text
-    , _enumEnum          :: [Text]
+    , _enumValues        :: HashMap Text Text
     } deriving (Eq, Show)
+
+instance FromJSON Enum where
+    parseJSON = withObject "enum" $ \o -> Enum
+        <$> o .:? "documentation"
+        <*> o .:? "locationName"
+        <*> (hmap <$> o .: "enum")
+      where
+        hmap = Map.fromList . map (join (,))
 
 data Blob = Blob
     { _blobDocumentation :: Maybe Doc
@@ -209,9 +247,7 @@ data Number a = Number
 
 deriveFromJSON defaults ''List
 deriveFromJSON defaults ''Map
-deriveFromJSON defaults ''Struct
 deriveFromJSON defaults ''Chars
-deriveFromJSON defaults ''Enum
 deriveFromJSON defaults ''Blob
 deriveFromJSON defaults ''Boolean
 deriveFromJSON defaults ''Time
