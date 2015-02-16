@@ -28,6 +28,7 @@ import           Control.Monad.State
 import           Data.Bifunctor
 import           Data.CaseInsensitive         (CI)
 import qualified Data.CaseInsensitive         as CI
+import           Data.Default.Class
 import qualified Data.Foldable                as Fold
 import           Data.HashMap.Strict          (HashMap)
 import qualified Data.HashMap.Strict          as Map
@@ -49,71 +50,56 @@ import           Language.Haskell.Exts.Pretty (prettyPrint)
 import qualified Language.Haskell.Stylish     as Style
 import           Prelude                      hiding (Enum)
 
--- All renaming, substitution, uniquifying should happen over the original
--- (boto) AST, also the type level overrides, aka Rules.
-
--- HashMap Text Shape -> HashMap Text Shape
--- ^ fold over the original (k,v) constructing a new hashmap by recursively solving.
-
 override :: HashMap Text Rules -> HashMap Text Shape -> HashMap Text Shape
-override o = undefined -- flip (Map.foldlWithKey' go)
+override o = Map.foldlWithKey' go mempty
   where
-    go Rules{..} = undefined
+    go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
+
+    shape rs@Rules{..} acc n s
+        | Map.member n replacedBy          = acc
+        | Just x <- Map.lookup n renamedTo = shape rs acc x s
+        | otherwise                        = Map.insert n (rules s) acc
       where
-    -- go :: HashMap Text Shape -- ^ Accumulator.
-    --    -> Text               -- ^ Shape name.
-    --    -> Rules              -- ^ Rules to apply.
-    --    -> HashMap Text Shape
-    -- go acc k Rules{..} =
-    --       renameTo   k (r ^. oRenameTo)
-    --     . replacedBy k (r ^. oReplacedBy)
-    --     . prefixEnum k (r ^. oSumPrefix)
-    --     . appendEnum k (r ^. oSumValues)
-    --     . Map.adjust (dataFields %~ fld) k
-    --     $ r
-    --   where
-    --     fld = required (r ^. oRequired) (r ^. oOptional)
-    --         . renamed  (r ^. oRenamed)
+        rules = requireFields
+              . optionalFields
+              . renameFields
+              . retypeFields
+              . prefixEnum
+              . appendEnum
 
-    --     shape = id
-    --     field = id
+        requireFields :: Shape -> Shape
+        requireFields = _SStruct . structRequired
+            %~ (<> _ruleRequired)
 
-        -- Take all the rules, and build a list of rename/replace mappings,
-        -- and use this in the 'renameFields' step below if more efficient
+        optionalFields :: Shape -> Shape
+        optionalFields = _SStruct . structRequired
+            %~ (`Set.difference` _ruleRequired)
 
-        prefixEnum :: Enum -> Enum
-        prefixEnum e = fromMaybe e $ do
-            p <- _ruleEnumPrefix
-            return $! e
-                & enumValues
-                %~ Map.fromList . map (first (p <>)) . Map.toList
-
-        appendEnum :: Enum -> Enum
-        appendEnum = enumValues %~ mappend _ruleEnumValues
-
-        requireFields :: Struct -> Struct
-        requireFields = structRequired %~ (<> _ruleRequired)
-
-        optionalFields :: Struct -> Struct
-        optionalFields = structRequired %~ (`Set.difference` _ruleRequired)
-
-        updateFields :: Struct -> Struct
-        updateFields = structMembers %~ OrdMap.map go
+        renameFields :: Shape -> Shape
+        renameFields = _SStruct . structMembers
+            %~ OrdMap.mapWithKey (\k -> (f k,))
           where
-            go :: Member -> Ref -> (Member, Ref)
-            go k v =
-                ( rename k
-                , retype replacedBy . retype renamedTo $ v
-                )
+            f k = fromMaybe k $ do
+                k' <- Map.lookup (k ^. memOriginal) _ruleRenamed
+                return (k & memName .~ k')
 
-            rename :: Member -> Member
-            rename k = fromMaybe k $ do
-                n <- Map.lookup (k ^. memOriginal) _ruleRenamed
-                return (k & memName .~ n)
+        retypeFields :: Shape -> Shape
+        retypeFields = references %~ f replacedBy . f renamedTo
+          where
+            f m v = maybe v (\x -> v & refShape .~ x)
+                $ Map.lookup (v ^. refShape) m
 
-            retype :: HashMap Text Text -> Ref -> Ref
-            retype m v = maybe v (\x -> v & refShape .~ x) $
-                Map.lookup (v ^. refShape) m
+        prefixEnum :: Shape -> Shape
+        prefixEnum = _SEnum . enumValues %~ f
+          where
+            f vs = fromMaybe vs $ do
+                p <- _ruleEnumPrefix
+                return . Map.fromList
+                       . map (first (p <>))
+                       $ Map.toList vs
+
+        appendEnum :: Shape -> Shape
+        appendEnum = _SEnum . enumValues %~ mappend _ruleEnumValues
 
     renamedTo :: HashMap Text Text
     renamedTo = buildMapping _ruleRenameTo

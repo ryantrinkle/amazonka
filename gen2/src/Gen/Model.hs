@@ -196,7 +196,7 @@ instance FromJSON Struct where
         <*> o .:? "fault"
         <*> (keys <$> o .:? "members" .!= mempty)
       where
-        keys = OrdMap.map (\k -> (Member mempty (CI.mk k) k,))
+        keys = OrdMap.mapWithKey (\k -> (Member mempty (CI.mk k) k,))
 
 data Chars = Chars
     { _charsDocumentation :: Maybe Doc
@@ -296,6 +296,16 @@ instance FromJSON Shape where
             "double"    -> f SDouble
             "long"      -> f SLong
             e           -> fail ("Unknown Shape type: " ++ Text.unpack e)
+
+references  :: Traversal' Shape Ref
+references f = \case
+    SList   s -> (\m -> SList (s & listMember .~ m))
+        <$> f (_listMember s)
+    SMap    s -> (\k v -> SMap (s & mapKey .~ k & mapValue .~ v))
+        <$> f (_mapKey s) <*> f (_mapValue s)
+    SStruct s -> (\ms -> SStruct (s & structMembers .~ ms))
+        <$> traverse f (_structMembers s)
+    s         -> pure s
 
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP
