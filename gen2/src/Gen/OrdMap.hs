@@ -51,5 +51,8 @@ instance FromJSON v => FromJSON (OrdMap Text v) where
 fromList :: [(k, v)] -> OrdMap k v
 fromList = OrdMap
 
-map :: (k -> v -> (k', v')) -> OrdMap k v -> OrdMap k' v'
-map f = OrdMap . fmap (uncurry f) . toList
+map :: (v -> v') -> OrdMap k v -> OrdMap k v'
+map f = mapWithKey (\k v -> (k, f v))
+
+mapWithKey :: (k -> v -> (k', v')) -> OrdMap k v -> OrdMap k' v'
+mapWithKey f = OrdMap . fmap (uncurry f) . toList

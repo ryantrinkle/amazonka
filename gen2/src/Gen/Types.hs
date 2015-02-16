@@ -30,6 +30,7 @@ import qualified Data.Attoparsec.Text      as Parse
 import           Data.Bifunctor
 import           Data.CaseInsensitive      (CI)
 import qualified Data.CaseInsensitive      as CI
+import           Data.Default.Class
 import           Data.Foldable             (Foldable)
 import           Data.HashMap.Strict       (HashMap)
 import qualified Data.HashMap.Strict       as Map
@@ -69,6 +70,9 @@ instance FromJSON Rules where
         <*> o .:? "required"   .!= mempty
         <*> o .:? "optional"   .!= mempty
         <*> o .:? "renamed"    .!= mempty
+
+instance Default Rules where
+    def = Rules Nothing Nothing Nothing mempty mempty mempty mempty
 
 data Override = Override
     { _ovOperationImports :: [Text]
