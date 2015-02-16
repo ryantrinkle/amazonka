@@ -11,7 +11,14 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE ViewPatterns               #-}
 
-module Gen.OrdMap where
+module Gen.OrdMap
+    ( OrdMap
+    , toList
+    , fromList
+    , map
+    , mapWithKey
+    , keys
+    ) where
 
 import           Control.Applicative
 import           Control.Lens
@@ -22,9 +29,11 @@ import           Data.Bifunctor
 import           Data.CaseInsensitive      (CI)
 import qualified Data.CaseInsensitive      as CI
 import           Data.Foldable             (Foldable)
+import           Data.Hashable
 import           Data.HashMap.Strict       (HashMap)
 import qualified Data.HashMap.Strict       as Map
 import           Data.HashSet              (HashSet)
+import qualified Data.HashSet              as Set
 import           Data.Jason.Types
 import           Data.Monoid
 import           Data.SemVer               (Version, fromText, toText)
@@ -56,3 +65,6 @@ map f = mapWithKey (\k v -> (k, f v))
 
 mapWithKey :: (k -> v -> (k', v')) -> OrdMap k v -> OrdMap k' v'
 mapWithKey f = OrdMap . fmap (uncurry f) . toList
+
+keys :: OrdMap k v -> [k]
+keys = fmap fst . toList

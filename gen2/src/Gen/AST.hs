@@ -24,38 +24,39 @@ import           Control.Error
 import           Control.Lens
 import           Control.Monad.Error
 import           Control.Monad.Reader
-import           Control.Monad.State
+import           Control.Monad.Trans.State.Strict
 import           Data.Bifunctor
-import           Data.CaseInsensitive         (CI)
-import qualified Data.CaseInsensitive         as CI
+import           Data.CaseInsensitive             (CI)
+import qualified Data.CaseInsensitive             as CI
 import           Data.Default.Class
-import qualified Data.Foldable                as Fold
-import           Data.HashMap.Strict          (HashMap)
-import qualified Data.HashMap.Strict          as Map
-import           Data.HashSet                 (HashSet)
-import qualified Data.HashSet                 as Set
-import           Data.List                    (findIndex)
+import qualified Data.Foldable                    as Fold
+import           Data.HashMap.Strict              (HashMap)
+import qualified Data.HashMap.Strict              as Map
+import           Data.HashSet                     (HashSet)
+import qualified Data.HashSet                     as Set
+import           Data.List                        (findIndex)
 import           Data.Monoid
-import           Data.Text                    (Text)
-import qualified Data.Text                    as Text
-import qualified Data.Text.Lazy               as LText
-import qualified Data.Text.Lazy.Builder       as Build
-import           Gen.Model                    hiding (Name)
-import           Gen.OrdMap                   (OrdMap)
-import qualified Gen.OrdMap                   as OrdMap
+import           Data.Text                        (Text)
+import qualified Data.Text                        as Text
+import qualified Data.Text.Lazy                   as LText
+import qualified Data.Text.Lazy.Builder           as Build
+import           Gen.Model                        hiding (Name, State)
+import           Gen.OrdMap                       (OrdMap)
+import qualified Gen.OrdMap                       as OrdMap
 import           Gen.Types
-import qualified HIndent                      as HIndent
+import qualified HIndent                          as HIndent
 import           Language.Haskell.Exts
-import           Language.Haskell.Exts.Pretty (prettyPrint)
-import qualified Language.Haskell.Stylish     as Style
-import           Prelude                      hiding (Enum)
+import           Language.Haskell.Exts.Pretty     (prettyPrint)
+import qualified Language.Haskell.Stylish         as Style
+import           Prelude                          hiding (Enum)
 
 override :: HashMap Text Rules -> HashMap Text Shape -> HashMap Text Shape
 override o = Map.foldlWithKey' go mempty
   where
     go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
 
-    shape rs@Rules{..} acc n s
+    shape :: Rules -> HashMap Text Shape -> Text -> Shape -> HashMap Text Shape
+    shape rs acc n s
         | Map.member n replacedBy          = acc
         | Just x <- Map.lookup n renamedTo = shape rs acc x s
         | otherwise                        = Map.insert n (rules s) acc
@@ -69,18 +70,18 @@ override o = Map.foldlWithKey' go mempty
 
         requireFields :: Shape -> Shape
         requireFields = _SStruct . structRequired
-            %~ (<> _ruleRequired)
+            %~ (<> _ruleRequired rs)
 
         optionalFields :: Shape -> Shape
         optionalFields = _SStruct . structRequired
-            %~ (`Set.difference` _ruleRequired)
+            %~ (`Set.difference` _ruleOptional rs)
 
         renameFields :: Shape -> Shape
         renameFields = _SStruct . structMembers
             %~ OrdMap.mapWithKey (\k -> (f k,))
           where
             f k = fromMaybe k $ do
-                k' <- Map.lookup (k ^. memOriginal) _ruleRenamed
+                k' <- Map.lookup (k ^. memOriginal) (_ruleRenamed rs)
                 return (k & memName .~ k')
 
         retypeFields :: Shape -> Shape
@@ -93,13 +94,13 @@ override o = Map.foldlWithKey' go mempty
         prefixEnum = _SEnum . enumValues %~ f
           where
             f vs = fromMaybe vs $ do
-                p <- _ruleEnumPrefix
+                p <- _ruleEnumPrefix rs
                 return . Map.fromList
                        . map (first (p <>))
                        $ Map.toList vs
 
         appendEnum :: Shape -> Shape
-        appendEnum = _SEnum . enumValues %~ mappend _ruleEnumValues
+        appendEnum = _SEnum . enumValues %~ mappend (_ruleEnumValues rs)
 
     renamedTo :: HashMap Text Text
     renamedTo = buildMapping _ruleRenameTo
@@ -111,8 +112,38 @@ override o = Map.foldlWithKey' go mempty
     buildMapping f = Map.fromList $
         mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
 
-uniquify :: HashMap Text Shape -> HashMap Text Shape
-uniquify = undefined
+-- FIXME: How to deal with reserved words? In the prefixing algos?
+
+prefix :: HashMap Text Shape -> HashMap Text (Prefix Shape)
+prefix ss = evalState (Map.traverseWithKey (go . attempt) ss) mempty
+  where
+    -- 1. Create a prefix
+    -- 2. Check if it is assigned
+    --   2a. Check if any of the field names are in the set, if not, use the
+    --       same prefix but add the field names.
+    --   2b. Or, go back to step one with the next heuristic, until they run out
+    --       then error.
+
+    -- The state is a map of _assigned_ prefixes -> a set of field names
+    go :: [Text] -> Shape -> State (HashMap Text (HashSet Text)) (Prefix Shape)
+    go ps s = Prefix <$> next ps (Set.fromList (keys s)) <*> pure s
+      where
+        next []     _  = fail "Unable to figure out a prefix"
+        next (x:xs) ks = do
+            m <- gets (Map.lookup x)
+            case m of
+                Just js | not (Set.null (Set.intersection js ks))
+                    -> next xs ks
+                _   -> modify (Map.insertWith (<>) x ks) >> pure x
+
+        keys (SStruct x) = map _memName . OrdMap.keys $ x ^. structMembers
+        keys (SEnum   x) = Map.keys $ x ^. enumValues
+        keys _           = mempty
+
+    attempt :: Text -> [Text]
+    attempt = const []
+
+--over traverse :: Traversable t => (a -> b) -> t a -> t b
 
 -- pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
 -- pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)

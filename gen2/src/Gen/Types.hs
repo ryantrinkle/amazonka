@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveFoldable             #-}
 {-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -32,6 +33,8 @@ import           Data.CaseInsensitive      (CI)
 import qualified Data.CaseInsensitive      as CI
 import           Data.Default.Class
 import           Data.Foldable             (Foldable)
+import           Data.Function             (on)
+import           Data.Hashable             (Hashable)
 import           Data.HashMap.Strict       (HashMap)
 import qualified Data.HashMap.Strict       as Map
 import           Data.HashSet              (HashSet)
@@ -43,11 +46,31 @@ import           Data.Text                 (Text)
 import           Data.Traversable          (Traversable)
 import qualified Filesystem.Path.CurrentOS as Path
 import           Gen.TH
+import           GHC.Generics              (Generic)
 import           GHC.TypeLits
 import           Text.EDE                  (Template)
 
 encode :: Path.FilePath -> Text
 encode = either id id . Path.toText
+
+data Prefix a = Prefix
+    { _prefKey  :: Text
+    , _prefItem :: a
+    } deriving (Eq, Show)
+
+makeLenses ''Prefix
+
+data Member = Member
+    { _memOriginal :: CI Text
+    , _memName     :: Text
+    } deriving (Show, Generic)
+
+instance Eq Member where
+    (==) = on (==) _memName
+
+instance Hashable Member
+
+makeLenses ''Member
 
 data Rules = Rules
     { _ruleRenameTo   :: Maybe Text             -- ^ Rename type
@@ -111,3 +134,4 @@ instance FromJSON a => FromJSON (HashMap (CI Text) a) where
 instance FromJSON Version where
     parseJSON = withText "semantic_version" $
         either fail return . fromText
+

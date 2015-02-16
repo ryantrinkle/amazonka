@@ -42,7 +42,6 @@ executable amazonka-gen
     build-depends:
           aeson
         , aeson-pretty
-        , hindent
         , attoparsec
         , base                 == 4.7.*
         , bifunctors
@@ -51,7 +50,9 @@ executable amazonka-gen
         , data-default-class
         , ede                  == 0.2.4.*
         , errors
+        , hashable
         , haskell-src-exts     == 1.16.*
+        , hindent
         , jason
         , lens                 == 4.5.*
         , mtl

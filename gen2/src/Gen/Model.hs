@@ -165,17 +165,6 @@ data Map = Map
     , _mapFlattened     :: Maybe Bool
     } deriving (Eq, Show)
 
-data Member = Member
-    { _memPrefix   :: Text
-    , _memOriginal :: CI Text
-    , _memName     :: Text
-    } deriving (Show)
-
-instance Eq Member where
-    (==) = on (==) _memName
-
-makeLenses ''Member
-
 data Struct = Struct
     { _structDocumentation :: Maybe Doc
     , _structRequired      :: HashSet (CI Text)
@@ -196,7 +185,7 @@ instance FromJSON Struct where
         <*> o .:? "fault"
         <*> (keys <$> o .:? "members" .!= mempty)
       where
-        keys = OrdMap.mapWithKey (\k -> (Member mempty (CI.mk k) k,))
+        keys = OrdMap.mapWithKey (\k -> (Member (CI.mk k) k,))
 
 data Chars = Chars
     { _charsDocumentation :: Maybe Doc
