@@ -32,6 +32,7 @@ executable amazonka-gen
         , Gen.Model.Retrier
         , Gen.Model.URI
         , Gen.Model.Waiter
+        , Gen.OrdMap
         , Gen.TH
         , Gen.Text
         , Gen.Types
