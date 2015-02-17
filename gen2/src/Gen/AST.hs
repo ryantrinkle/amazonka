@@ -120,11 +120,14 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
 
         -- SomeTestType -> STT
         r1 = toAcronym n
+
         -- SomeTestType -> S
         r3 = Text.toUpper <$> safeHead n
+
         -- Some -> Some || SomeTestType -> Some
         r2 | Text.length n <= 3 = Just n
            | otherwise          = Just (Text.take 3 n)
+
         -- SomeTestType -> Som
         r4 = upperHead <$> listToMaybe (splitWords n)
 
