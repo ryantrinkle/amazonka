@@ -34,6 +34,9 @@ asText f = Text.unpack . f . Text.pack
 dropLower :: Text -> Text
 dropLower = Text.dropWhile (not . isUpper)
 
+safeHead :: Text -> Maybe Text
+safeHead = fmap (Text.singleton . fst) . Text.uncons
+
 stripLens :: Text -> Text
 stripLens t
     | "_" `Text.isPrefixOf` t = lowerHead (dropLower t)

@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE ViewPatterns          #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -40,9 +41,11 @@ import           Data.Text                        (Text)
 import qualified Data.Text                        as Text
 import qualified Data.Text.Lazy                   as LText
 import qualified Data.Text.Lazy.Builder           as Build
+import           Data.Text.Manipulate
 import           Gen.Model                        hiding (Name, State)
 import           Gen.OrdMap                       (OrdMap)
 import qualified Gen.OrdMap                       as OrdMap
+import           Gen.Text                         (safeHead)
 import           Gen.Types
 import qualified HIndent                          as HIndent
 import           Language.Haskell.Exts
@@ -114,34 +117,49 @@ override o = Map.foldlWithKey' go mempty
 
 -- FIXME: How to deal with reserved words? In the prefixing algos?
 
+type PS = HashMap Text (HashSet Text)
+
 prefix :: HashMap Text Shape -> HashMap Text (Prefix Shape)
-prefix ss = evalState (Map.traverseWithKey (go . attempt) ss) mempty
+prefix ss = evalState (Map.traverseWithKey go ss) (mempty, mempty)
   where
-    -- 1. Create a prefix
-    -- 2. Check if it is assigned
-    --   2a. Check if any of the field names are in the set, if not, use the
-    --       same prefix but add the field names.
-    --   2b. Or, go back to step one with the next heuristic, until they run out
-    --       then error.
+    go :: Text -> Shape -> State (PS, PS) (Prefix Shape)
+    go n s = Prefix <$> unique n s <*> pure s
 
-    -- The state is a map of _assigned_ prefixes -> a set of field names
-    go :: [Text] -> Shape -> State (HashMap Text (HashSet Text)) (Prefix Shape)
-    go ps s = Prefix <$> next ps (Set.fromList (keys s)) <*> pure s
-      where
-        next []     _  = fail "Unable to calculate prefix"
-        next (x:xs) ks = do
-            m <- gets (Map.lookup x)
-            case m of
-                Just js | not (Set.null (Set.intersection js ks))
-                    -> next xs ks
-                _   -> modify (Map.insertWith (<>) x ks) >> pure x
+    unique :: Text -> Shape -> State (PS, PS) Text
+    unique n = \case
+        SStruct x -> next _1 (map Text.toLower (heuristics n))
+            . Set.fromList
+            . map _memName
+            . OrdMap.keys
+            $ x ^. structMembers
+        SEnum   x -> next _2 (heuristics n)
+            . Set.fromList
+            . Map.keys
+            $ x ^. enumValues
+        _         -> pure n
 
-        keys (SStruct x) = map _memName . OrdMap.keys $ x ^. structMembers
-        keys (SEnum   x) = Map.keys $ x ^. enumValues
-        keys _           = mempty
+    next :: Lens' (PS, PS) PS -> [Text] -> HashSet Text -> State (PS, PS) Text
+    next _ []     _  = fail "Unable to calculate prefix"
+    next l (x:xs) ks = do
+        m <- use l
+        case Map.lookup x m of
+            Just js | not (Set.null (Set.intersection js ks))
+                -> next l xs ks
+            _   -> l %= Map.insertWith (<>) x ks >> pure x
 
-    attempt :: Text -> [Text]
-    attempt = const []
+    heuristics :: Text -> [Text]
+    heuristics (Text.replace ":" "-" -> n) =
+        filter ((<= 5) . Text.length) $
+            catMaybes
+                [ toAcronym n                              -- SomeTestType -> STT
+                , Text.toUpper <$> safeHead n              -- SomeTestType -> S
+                , upperHead <$> listToMaybe (splitWords n) -- SomeTestType -> Some
+                ]
+
+-- data Prefixed = Prefixed
+--     { _structPrefixes :: HashMap Text (HashSet Text)
+--     , _enumPrefixes   :: HashMap Text (HashSet Text)
+--     }
 
 --over traverse :: Traversable t => (a -> b) -> t a -> t b
 
