@@ -6,7 +6,6 @@
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE ViewPatterns          #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -25,34 +24,114 @@ import           Control.Error
 import           Control.Lens
 import           Control.Monad.Error
 import           Control.Monad.Reader
-import           Control.Monad.Trans.State.Strict
+import           Control.Monad.State.Strict
 import           Data.Bifunctor
-import           Data.CaseInsensitive             (CI)
-import qualified Data.CaseInsensitive             as CI
+import           Data.CaseInsensitive         (CI)
+import qualified Data.CaseInsensitive         as CI
 import           Data.Default.Class
-import qualified Data.Foldable                    as Fold
-import           Data.HashMap.Strict              (HashMap)
-import qualified Data.HashMap.Strict              as Map
-import           Data.HashSet                     (HashSet)
-import qualified Data.HashSet                     as Set
-import           Data.List                        (findIndex)
+import qualified Data.Foldable                as Fold
+import           Data.HashMap.Strict          (HashMap)
+import qualified Data.HashMap.Strict          as Map
+import           Data.HashSet                 (HashSet)
+import qualified Data.HashSet                 as Set
+import           Data.List                    (findIndex)
 import           Data.Monoid
-import           Data.Text                        (Text)
-import qualified Data.Text                        as Text
-import qualified Data.Text.Lazy                   as LText
-import qualified Data.Text.Lazy.Builder           as Build
+import           Data.Text                    (Text)
+import qualified Data.Text                    as Text
+import qualified Data.Text.Lazy               as LText
+import qualified Data.Text.Lazy.Builder       as Build
 import           Data.Text.Manipulate
-import           Gen.Model                        hiding (Name, State)
-import           Gen.OrdMap                       (OrdMap)
-import qualified Gen.OrdMap                       as OrdMap
-import           Gen.Text                         (safeHead)
-import           Gen.Types
-import qualified HIndent                          as HIndent
+import           Debug.Trace
+import           Gen.Model                    hiding (Name, State)
+import           Gen.OrdMap                   (OrdMap)
+import qualified Gen.OrdMap                   as OrdMap
+import           Gen.Text                     (safeHead)
+import           Gen.Types                    hiding (override)
+import qualified HIndent
 import           Language.Haskell.Exts
-import           Language.Haskell.Exts.Pretty     (prettyPrint)
-import qualified Language.Haskell.Stylish         as Style
-import           Prelude                          hiding (Enum)
+import           Language.Haskell.Exts.Pretty (prettyPrint)
+import qualified Language.Haskell.Stylish     as Style
+import           Prelude                      hiding (Enum)
 
+type PS = HashMap Text (HashSet Text)
+
+transform :: (Functor m, MonadError String m)
+          => Service Shape
+          -> m (Service (Prefix Shape))
+transform s = do
+    x <- prefix $ override (s ^. svcOverride . ovOverrides) (s ^. svcShapes)
+    return $! s & svcShapes .~ x
+
+-- | Assign unique prefixes to 'Enum' and 'Struct' shapes.
+prefix :: (Functor m, MonadError String m)
+       => HashMap Text Shape
+       -> m (HashMap Text (Prefix Shape))
+prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
+  where
+    go :: (Functor m, MonadError String m)
+       => Text
+       -> Shape
+       -> StateT (PS, PS) m (Prefix Shape)
+    go n s = Prefix <$> unique n s <*> pure s
+
+    unique :: (Functor m, MonadError String m)
+           => Text
+           -> Shape
+           -> StateT (PS, PS) m Text
+    unique n = \case
+        SStruct x -> next n _1 (map Text.toLower $ heuristics n)
+            . Set.fromList
+            . map (Text.toLower . _memName)
+            . OrdMap.keys
+            $ x ^. structMembers
+        SEnum   x -> next n _2 (heuristics n)
+            . Set.fromList
+            . Map.keys
+            $ x ^. enumValues
+        _         -> pure n
+
+    next :: (Functor m, MonadError String m)
+         => Text
+         -> Lens' (PS, PS) PS
+         -> [Text]
+         -> HashSet Text
+         -> StateT (PS, PS) m Text
+    next k _ []     _ = do
+        (s, _) <- get
+        forM_ (heuristics k) $ \x ->
+            trace (unlines
+                [ "Key:       " ++ show k
+                , "Heuristic: " ++ show x
+                , "Structs:   " ++ show (Map.lookup x s)
+                ]) (return ())
+        throwError "Failure."
+    next k l (x:xs) ks = do
+        m <- use l
+        case Map.lookup x m of
+            Just js | not (Set.null (Set.intersection js ks))
+                -> next k l xs ks
+            _   -> l %= Map.insertWith (<>) x ks >> pure x
+
+    heuristics :: Text -> [Text]
+    heuristics n = acronym ++ ordinal
+      where
+        ordinal = concatMap (\i -> map (\x -> mappend x (num i)) acronym) [1..3]
+        acronym = catMaybes [r1, r2, r3, r4]
+
+        -- SomeTestType -> STT
+        r1 = toAcronym n
+        -- SomeTestType -> S
+        r3 = Text.toUpper <$> safeHead n
+        -- Some -> Some || SomeTestType -> Some
+        r2 | Text.length n <= 3 = Just n
+           | otherwise          = Just (Text.take 3 n)
+        -- SomeTestType -> Som
+        r4 = upperHead <$> listToMaybe (splitWords n)
+
+        num :: Int -> Text
+        num = Text.pack . show
+
+-- | Apply the override rulset to shapes and their respective fields.
 override :: HashMap Text Rules -> HashMap Text Shape -> HashMap Text Shape
 override o = Map.foldlWithKey' go mempty
   where
@@ -84,7 +163,7 @@ override o = Map.foldlWithKey' go mempty
             %~ OrdMap.mapWithKey (\k -> (f k,))
           where
             f k = fromMaybe k $ do
-                k' <- Map.lookup (k ^. memOriginal) (_ruleRenamed rs)
+                k' <- Map.lookup (CI.mk (k ^. memOriginal)) (_ruleRenamed rs)
                 return (k & memName .~ k')
 
         retypeFields :: Shape -> Shape
@@ -116,52 +195,6 @@ override o = Map.foldlWithKey' go mempty
         mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
 
 -- FIXME: How to deal with reserved words? In the prefixing algos?
-
-type PS = HashMap Text (HashSet Text)
-
-prefix :: HashMap Text Shape -> HashMap Text (Prefix Shape)
-prefix ss = evalState (Map.traverseWithKey go ss) (mempty, mempty)
-  where
-    go :: Text -> Shape -> State (PS, PS) (Prefix Shape)
-    go n s = Prefix <$> unique n s <*> pure s
-
-    unique :: Text -> Shape -> State (PS, PS) Text
-    unique n = \case
-        SStruct x -> next _1 (map Text.toLower (heuristics n))
-            . Set.fromList
-            . map _memName
-            . OrdMap.keys
-            $ x ^. structMembers
-        SEnum   x -> next _2 (heuristics n)
-            . Set.fromList
-            . Map.keys
-            $ x ^. enumValues
-        _         -> pure n
-
-    next :: Lens' (PS, PS) PS -> [Text] -> HashSet Text -> State (PS, PS) Text
-    next _ []     _  = fail "Unable to calculate prefix"
-    next l (x:xs) ks = do
-        m <- use l
-        case Map.lookup x m of
-            Just js | not (Set.null (Set.intersection js ks))
-                -> next l xs ks
-            _   -> l %= Map.insertWith (<>) x ks >> pure x
-
-    heuristics :: Text -> [Text]
-    heuristics (Text.replace ":" "-" -> n) =
-        filter ((<= 5) . Text.length) $
-            catMaybes
-                [ toAcronym n                              -- SomeTestType -> STT
-                , Text.toUpper <$> safeHead n              -- SomeTestType -> S
-                , upperHead <$> listToMaybe (splitWords n) -- SomeTestType -> Some
-                ]
-
--- data Prefixed = Prefixed
---     { _structPrefixes :: HashMap Text (HashSet Text)
---     , _enumPrefixes   :: HashMap Text (HashSet Text)
---     }
-
---over traverse :: Traversable t => (a -> b) -> t a -> t b
 
 -- pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
 -- pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)

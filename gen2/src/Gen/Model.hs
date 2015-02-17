@@ -185,7 +185,7 @@ instance FromJSON Struct where
         <*> o .:? "fault"
         <*> (keys <$> o .:? "members" .!= mempty)
       where
-        keys = OrdMap.mapWithKey (\k -> (Member (CI.mk k) k,))
+        keys = OrdMap.mapWithKey (\k -> (Member k k,))
 
 data Chars = Chars
     { _charsDocumentation :: Maybe Doc
@@ -209,7 +209,7 @@ instance FromJSON Enum where
         <*> o .:? "locationName"
         <*> (hmap <$> o .: "enum")
       where
-        hmap = Map.fromList . map (join (,))
+        hmap = Map.fromList . map (first safeConstructor . join (,))
 
 data Blob = Blob
     { _blobDocumentation :: Maybe Doc
@@ -365,26 +365,26 @@ data Metadata = Metadata
 makeClassy ''Metadata
 deriveFromJSON camel ''Metadata
 
-data Service = Service
+data Service s = Service
     { _svcMetadata         :: !Metadata
     , _svcLibrary          :: !Text
     , _svcDocumentation    :: !Doc
     , _svcDocumentationUrl :: !Text
     , _svcOperations       :: HashMap Text Operation
-    , _svcShapes           :: HashMap Text Shape
+    , _svcShapes           :: HashMap Text s
     , _svcOverride         :: !Override
     } deriving (Eq, Show)
 
 makeLenses ''Service
 
-instance HasMetadata Service where metadata = svcMetadata
-instance HasOverride Service where override = svcOverride
+instance HasMetadata (Service s) where metadata = svcMetadata
+instance HasOverride (Service s) where override = svcOverride
 
-svcName, svcAbbrev :: Getter Service Text
+svcName, svcAbbrev :: Getter (Service s) Text
 svcName   = metaServiceFullName     . to nameToText
 svcAbbrev = metaServiceAbbreviation . to abbrevToText
 
-instance FromJSON Service where
+instance FromJSON (Service Shape) where
     parseJSON = withObject "service" $ \o -> Service
         <$> o .:  "metadata"
         <*> o .:  "library"

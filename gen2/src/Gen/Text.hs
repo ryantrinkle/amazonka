@@ -17,7 +17,7 @@ import           Control.Lens
 import           Control.Monad
 import qualified Data.Attoparsec.Text  as Parse
 import           Data.Char
-import           Data.Foldable         (foldl')
+import           Data.Foldable         as Fold
 import           Data.HashSet          (HashSet)
 import qualified Data.HashSet          as Set
 import           Data.Maybe
@@ -48,8 +48,25 @@ stripPrefix p t = Text.strip . fromMaybe t $ p `Text.stripPrefix` t
 stripSuffix :: Text -> Text -> Text
 stripSuffix p t = Text.strip . fromMaybe t $ p `Text.stripSuffix` t
 
+safeConstructor :: Text -> Text
+safeConstructor t = replaceAcronyms . rejoin . map recase $ splitWords t
+  where
+    rejoin
+        | Text.any (not . isAlphaNum) t = Text.intercalate "_"
+        | otherwise                     = Text.concat
+
+    recase x
+        | Text.null x           = x
+        | isDigit (Text.last x) = Text.toUpper x
+        | isDigit (Text.head x) = upper
+        | otherwise             = x
+      where
+        upper = case Text.uncons x of
+            Nothing      -> x
+            Just (c, cs) -> c `Text.cons` upperHead cs
+
 replaceAcronyms :: Text -> Text
-replaceAcronyms x = foldl' (flip (uncurry RE.replaceAll)) x xs
+replaceAcronyms x = Fold.foldl' (flip (uncurry RE.replaceAll)) x xs
   where
     xs :: [(Regex, Replace)]
     xs = [ ("Acl",           "ACL")
@@ -124,4 +141,5 @@ replaceAcronyms x = foldl' (flip (uncurry RE.replaceAll)) x xs
          , ("Vpc",           "VPC")
          , ("Vpn",           "VPN")
          , ("Xml",           "XML")
+         , ("Xlarge",        "XLarge")
          ]

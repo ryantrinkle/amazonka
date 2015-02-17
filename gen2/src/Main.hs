@@ -17,8 +17,7 @@ module Main (main) where
 
 import           Control.Applicative
 import           Control.Error
-import           Control.Lens              (Lens', assign, makeLenses, view,
-                                            (^.))
+import           Control.Lens              hiding ((<.>), (</>))
 import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.IO.Class
@@ -27,7 +26,7 @@ import           Data.Either
 import qualified Data.Foldable             as Fold
 import qualified Data.HashMap.Strict       as Map
 import           Data.Jason                (eitherDecode)
-import           Data.List                 (sort)
+import           Data.List                 (sortBy)
 import           Data.Monoid
 import qualified Data.SemVer               as SemVer
 import           Data.String
@@ -37,13 +36,14 @@ import qualified Data.Text.Lazy.Builder    as Build
 import qualified Data.Text.Lazy.IO         as LText
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
-import           Gen.AST
+import qualified Gen.AST                   as AST
 import           Gen.IO
 import           Gen.JSON
 import           Gen.Model
 import           Gen.Types
 import           Options.Applicative
 import           Prelude                   hiding (FilePath)
+import           System.IO                 hiding (FilePath)
 
 data Options = Options
     { _optOutput    :: FilePath
@@ -126,16 +126,20 @@ validate o = flip execStateT o $ do
 
 main :: IO ()
 main = runScript $ do
---    hSetBuffering stdout LineBuffering
+--    scriptIO $ hSetBuffering stdout LineBuffering
 
     o <- scriptIO $ customExecParser (prefs showHelpOnError) options
         >>= validate
 
     forM_ (o ^. optModels) $ \d -> do
-        s  <- service d (o ^. optOverrides)
-        u  <- instantiate (s ^. svcShapes)
+        s1 <- service d (o ^. optOverrides)
+        s2 <- AST.transform s1
 
-        scriptIO $ mapM_ (print . fst) (Map.elems u)
+        scriptIO $ forM_ (Map.elems (s2 ^. svcShapes)) $ \p ->
+            case _prefItem p of
+                SStruct{} -> print ("struct: ", _prefKey p)
+                SEnum{}   -> print ("enum:   ", _prefKey p)
+                _         -> return ()
 
 --        scriptIO . LText.writeFile "test.hs" . Build.toLazyText . Fold.foldMap (<> "\n") $ rights xs
 
@@ -147,7 +151,7 @@ main = runScript $ do
 
 --    say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
-service :: FilePath -> FilePath -> Script Service
+service :: FilePath -> FilePath -> Script (Service Shape)
 service d o = do
 --    say "Load Service" (encode d)
     v <- version
@@ -163,7 +167,7 @@ service d o = do
         Right x -> return x
   where
     version = do
-        fs <- reverse . sort <$> scriptIO (FS.listDirectory d)
+        fs <- sortBy (flip compare) <$> scriptIO (FS.listDirectory d)
         f  <- tryHead ("Failed to get model version from " ++ show d) fs
         return (basename f)
 

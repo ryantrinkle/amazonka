@@ -61,7 +61,7 @@ data Prefix a = Prefix
 makeLenses ''Prefix
 
 data Member = Member
-    { _memOriginal :: CI Text
+    { _memOriginal :: Text
     , _memName     :: Text
     } deriving (Show, Generic)
 
@@ -134,4 +134,3 @@ instance FromJSON a => FromJSON (HashMap (CI Text) a) where
 instance FromJSON Version where
     parseJSON = withText "semantic_version" $
         either fail return . fromText
-
