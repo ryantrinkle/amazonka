@@ -55,6 +55,9 @@ import           Prelude                      hiding (Enum)
 
 type PS = HashMap Text (HashSet Text)
 
+-- this stuff could go in a special module,
+-- the -> Haskell AST stuff in another
+
 transform :: (Functor m, MonadError String m)
           => Service Shape
           -> m (Service (Prefix Shape))

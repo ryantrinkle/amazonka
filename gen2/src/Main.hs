@@ -150,37 +150,38 @@ main = runScript $ do
 --        say "Completed" (s ^. svcName)
 
 --    say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
-
-service :: FilePath -> FilePath -> Script (Service Shape)
-service d o = do
---    say "Load Service" (encode d)
-    v <- version
-    x <- decode override
-    y <- mergeObjects <$> sequence
-        [ pure x
-        , decode (normal v)
-        , def "waiters"    $ decode (waiters v)
-        , def "pagination" $ decode (pagers  v)
-        ]
-    case parse y of
-        Left  e -> throwError $ "Error parsing " ++ show d ++ " with " ++ e
-        Right x -> return x
   where
-    version = do
+    getService :: FilePath -> FilePath -> Script (Service Shape)
+    getService d o = do
+    --    say "Load Service" (encode d)
+        v <- getVersion d
+        x <- decode override
+        y <- mergeObjects <$> sequence
+            [ pure x
+            , decode (normal v)
+            , def "waiters"    $ decode (waiters v)
+            , def "pagination" $ decode (pagers  v)
+            ]
+        case parse y of
+            Left  e -> throwError $ "Error parsing " ++ show d ++ " with " ++ e
+            Right x -> return x
+      where
+        override = o </> name <.> "json"
+        normal   = path "normal.json"
+        waiters  = path "waiters.json"
+        pagers   = path "paginators.json"
+
+        path e v = d </> v <.> e
+
+        name = basename d
+
+    getVersion :: FilePath -> Script FilePath
+    getVersion d = do
         fs <- sortBy (flip compare) <$> scriptIO (FS.listDirectory d)
         f  <- tryHead ("Failed to get model version from " ++ show d) fs
         return (basename f)
 
     decode = contents >=> hoistEither . eitherDecode
-
-    normal   = path "normal.json"
-    waiters  = path "waiters.json"
-    pagers   = path "paginators.json"
-
-    path e v = d </> v <.> e
-    override = o </> name <.> "json"
-
-    name = basename d
 
  -- * Calculate a stable 'amazonka-*' library name per service
  -- * Ensure every shape has documentation (even if 'documentation is missing' string)
