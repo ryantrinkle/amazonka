@@ -118,7 +118,10 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
     heuristics :: Text -> [Text]
     heuristics n = acronym ++ ordinal
       where
+        -- Append an ordinal to the generated acronyms
         ordinal = concatMap (\i -> map (\x -> mappend x (num i)) acronym) [1..3]
+
+        -- Acronym preference list
         acronym = catMaybes [r1, r2, r3, r4]
 
         -- SomeTestType -> STT

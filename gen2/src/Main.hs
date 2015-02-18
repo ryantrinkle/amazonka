@@ -132,7 +132,7 @@ main = runScript $ do
         >>= validate
 
     forM_ (o ^. optModels) $ \d -> do
-        s1 <- service d (o ^. optOverrides)
+        s1 <- getService d (o ^. optOverrides)
         s2 <- AST.transform s1
 
         scriptIO $ forM_ (Map.elems (s2 ^. svcShapes)) $ \p ->
