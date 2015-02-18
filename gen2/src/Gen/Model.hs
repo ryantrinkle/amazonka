@@ -34,7 +34,7 @@ import           Data.Jason.Types     (mkObject, unObject)
 import           Data.Monoid
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
-import           Gen.Doc
+import           Gen.Documentation
 import           Gen.Model.Index      as Model
 import           Gen.Model.Paginator  as Model
 import           Gen.Model.Retrier    as Model
@@ -209,7 +209,7 @@ instance FromJSON Enum where
         <*> o .:? "locationName"
         <*> (hmap <$> o .: "enum")
       where
-        hmap = Map.fromList . map (first safeConstructor . join (,))
+        hmap = Map.fromList . map (first constructor . join (,))
 
 data Blob = Blob
     { _blobDocumentation :: Maybe Doc

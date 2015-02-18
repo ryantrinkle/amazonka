@@ -1,6 +1,7 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ViewPatterns      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE ViewPatterns          #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -24,33 +25,16 @@ import           Data.Function        (on)
 import           Data.Jason.Types
 import           Data.List
 import           Data.Monoid
+import           Data.Text            (Text)
 
--- requireObject :: (Monad m, FromJSON a) => ByteString -> EitherT String m a
--- requireObject = loadObject >=> either (throwError "Unable to") return
-
--- hoistEither (eitherDecode' . LBS.fromStrict bs)
-
--- required :: ByteString -> EitherT String
-
--- optionalObject :: Text -> ByteString -> Script Object
--- optionalObject k p = either (const obj) id <$> loadObject p
---   where
---     obj = mkObject [(k, Object mempty)]
-
---def :: Text -> m a -> m Object
+def :: MonadError e m => Text -> m Object -> m Object
 def k = flip catchError (const . return $ mkObject [(k, Object mempty)])
-
--- loadObject :: FromJSON a => FilePath -> EitherT String m a
--- loadObject p = scriptIO $ do
---     if b
---         then eitherDecode' . LBS.fromStrict <$> FS.readFile p
---         else return . Left $ "Unable to find " ++ show p
 
 parse :: FromJSON a => Object -> Either String a
 parse = parseEither parseJSON . Object
 
-mergeObjects :: [Object] -> Object
-mergeObjects = foldl' go mempty
+merge :: [Object] -> Object
+merge = foldl' go mempty
   where
     go :: Object -> Object -> Object
     go (unObject -> a) (unObject -> b) = mkObject (assoc value a b)

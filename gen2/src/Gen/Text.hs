@@ -48,8 +48,8 @@ stripPrefix p t = Text.strip . fromMaybe t $ p `Text.stripPrefix` t
 stripSuffix :: Text -> Text -> Text
 stripSuffix p t = Text.strip . fromMaybe t $ p `Text.stripSuffix` t
 
-safeConstructor :: Text -> Text
-safeConstructor t = replaceAcronyms . rejoin . map recase $ splitWords t
+constructor :: Text -> Text
+constructor t = acronym . rejoin . map recase $ splitWords t
   where
     rejoin
         | Text.any (not . isAlphaNum) t = Text.intercalate "_"
@@ -65,8 +65,8 @@ safeConstructor t = replaceAcronyms . rejoin . map recase $ splitWords t
             Nothing      -> x
             Just (c, cs) -> c `Text.cons` upperHead cs
 
-replaceAcronyms :: Text -> Text
-replaceAcronyms x = Fold.foldl' (flip (uncurry RE.replaceAll)) x xs
+acronym :: Text -> Text
+acronym x = Fold.foldl' (flip (uncurry RE.replaceAll)) x xs
   where
     xs :: [(Regex, Replace)]
     xs = [ ("Acl",           "ACL")
