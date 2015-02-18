@@ -123,7 +123,11 @@ data Templates a = Templates
     , _tmplSelect          :: a -> (Template, Template)
     }
 
-makeLenses ''Template
+makeLenses ''Templates
+
+tmplTypes, tmplOperation :: Getter (Templates a) (a -> Template)
+tmplTypes     = to (\s -> fst . _tmplSelect s)
+tmplOperation = to (\s -> snd . _tmplSelect s)
 
 instance FromJSON (CI Text) where
     parseJSON = withText "ci" (return . CI.mk)

@@ -33,6 +33,7 @@ import           Data.Monoid
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 import qualified Data.Text.IO              as Text
+import qualified Data.Text.Lazy            as LText
 import qualified Data.Text.Lazy.IO         as LText
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
@@ -40,6 +41,7 @@ import           Gen.JSON
 import           Gen.Model
 import           Gen.Types
 import           Prelude                   hiding (FilePath)
+import           System.Directory.Tree
 import           Text.EDE                  (Template)
 import qualified Text.EDE                  as EDE
 
@@ -67,9 +69,17 @@ import qualified Text.EDE                  as EDE
 -- failure :: FilePath -> String -> Script a
 -- failure p msg = throwError $ msg <> " in " <> Text.unpack (encode p)
 
+writeTree :: AnchoredDirTree (Either String LText.Text)
+          -> Script (AnchoredDirTree ())
+writeTree t = scriptIO . flip writeDirectoryWith t $ \p x -> do
+    say "Write Tree" (Text.pack p)
+    either (throwError . userError)
+           (LText.writeFile p)
+           x
+
 fileContents :: FilePath -> Script LBS.ByteString
 fileContents p = do
---    say "Read File" (encode p)
+    say "Get Contents" (encode p)
     b <- scriptIO (FS.isFile p)
     if b
         then LBS.fromStrict <$> scriptIO (FS.readFile p)

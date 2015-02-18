@@ -136,8 +136,7 @@ main = runScript $ do
 
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
-        d <- scriptIO . writeDirectory $ Library.tree (o ^. optOutput) undefined s --(o ^. optTemplates)
-
+        d <- writeTree $ Library.tree (o ^. optOutput) undefined s --(o ^. optTemplates)
         return ()
 
 -- modules:
@@ -162,7 +161,7 @@ version d = do
 
 service :: FilePath -> FilePath -> Script (Service (Prefix Shape))
 service d o = do
---    say "Load Service" (encode d)
+    say "Load Service" (encode d)
     v <- version d
     x <- decode override
     y <- JSON.merge <$> sequence

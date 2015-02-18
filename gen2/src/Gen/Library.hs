@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
 
 -- Module      : Gen.Library
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -19,7 +18,7 @@ import           Control.Lens              ((^.))
 import           Control.Monad
 import           Control.Monad.Error
 import           Control.Monad.IO.Class
-import qualified Data.Aeson                as A
+import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
 import           Data.Bifunctor
 import           Data.ByteString           (ByteString)
@@ -50,11 +49,11 @@ import qualified Text.EDE                  as EDE
 --      -> Template Protocol
 --      -> Service (Prefix Shape)
 --      -> DirTree String
-tree d _ s = encodeString d :/ dir lib
+tree d t s = encodeString d :/ dir lib
     [ dir "src" []
     , dir "examples"
         [ dir "src" []
-        , file (fromText $ library <> "-examples.cabal") cabalExample
+        , file (fromText $ s ^. svcLibrary <> "-examples.cabal") cabalExample
         , file "Makefile" makefileExample
         ]
     , dir "gen"
@@ -69,28 +68,25 @@ tree d _ s = encodeString d :/ dir lib
             ]
         ]
     , file (lib <.> "cabal") cabal
-    , file "Makefile" makefile
+--    , file "Makefile" makefile
     , file "README.md" readme
     ]
   where
-    lib     = fromText library
-    library = s ^. svcLibrary
-    abbrev  = fromText (s ^. svcAbbrev)
+    cabal           = EDE.eitherRender (t ^. tmplCabal)           mempty
+    readme          = EDE.eitherRender (t ^. tmplReadme)          mempty
 
-    -- How to handle the rendering of these with the Either result?
-    -- Maybe they file contents is also the Conduit parameterised over failure?
-    cabal    = ""
-    makefile = ""
-    readme   = ""
+    cabalExample    = EDE.eitherRender (t ^. tmplCabalExample)    mempty
+    makefileExample = EDE.eitherRender (t ^. tmplMakefileExample) mempty
 
-    cabalExample    = ""
-    makefileExample = ""
+    service         = EDE.eitherRender (t ^. tmplService)         mempty
+    types           = EDE.eitherRender (t ^. tmplTypes $ proto)           mempty
+    waiters         = EDE.eitherRender (t ^. tmplWaiters)         mempty
 
-    service = ""
-    types   = ""
-    waiters = ""
+    operations      = []
 
-    operations = []
+    proto  = s ^. metaProtocol
+    lib    = fromText (s ^. svcLibrary)
+    abbrev = fromText (s ^. svcAbbrev)
 
 (<//>) :: FilePath -> DirTree a -> DirTree a
 p <//> d = dir p [d]
