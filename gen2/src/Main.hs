@@ -36,13 +36,15 @@ import qualified Data.Text.Lazy.Builder    as Build
 import qualified Data.Text.Lazy.IO         as LText
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
-import qualified Gen.AST                   as AST
 import           Gen.IO
-import           Gen.JSON
+import qualified Gen.JSON                  as JSON
+import qualified Gen.Library               as Library
 import           Gen.Model
+import qualified Gen.Override              as Override
 import           Gen.Types
 import           Options.Applicative
 import           Prelude                   hiding (FilePath)
+import           System.Directory.Tree
 import           System.IO                 hiding (FilePath)
 
 data Options = Options
@@ -126,20 +128,21 @@ validate o = flip execStateT o $ do
 
 main :: IO ()
 main = runScript $ do
---    scriptIO $ hSetBuffering stdout LineBuffering
+    -- Makes errors easier to read due to output location correspondence.
+    scriptIO $ hSetBuffering stdout LineBuffering
 
     o <- scriptIO $ customExecParser (prefs showHelpOnError) options
         >>= validate
 
     forM_ (o ^. optModels) $ \d -> do
-        s1 <- getService d (o ^. optOverrides)
-        s2 <- AST.transform s1
+        s <- service d (o ^. optOverrides)
+        d <- scriptIO . writeDirectory $ Library.tree (o ^. optOutput) undefined s --(o ^. optTemplates)
 
-        scriptIO $ forM_ (Map.elems (s2 ^. svcShapes)) $ \p ->
-            case _prefItem p of
-                SStruct{} -> print ("struct: ", _prefKey p)
-                SEnum{}   -> print ("enum:   ", _prefKey p)
-                _         -> return ()
+        return ()
+
+-- modules:
+-- Gen.AST.hs     -> transform the model into a Haskell AST
+-- Gen.Library.hs -> directory structure, assets, rendering of .hs files
 
 --        scriptIO . LText.writeFile "test.hs" . Build.toLazyText . Fold.foldMap (<> "\n") $ rights xs
 
@@ -150,38 +153,36 @@ main = runScript $ do
 --        say "Completed" (s ^. svcName)
 
 --    say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
+
+version :: FilePath -> Script FilePath
+version d = do
+    fs <- sortBy (flip compare) <$> scriptIO (FS.listDirectory d)
+    f  <- tryHead ("Failed to get model version from " ++ show d) fs
+    return (basename f)
+
+service :: FilePath -> FilePath -> Script (Service (Prefix Shape))
+service d o = do
+--    say "Load Service" (encode d)
+    v <- version d
+    x <- decode override
+    y <- JSON.merge <$> sequence
+        [ pure x
+        , decode (normal v)
+        , JSON.def "waiters"    $ decode (waiters v)
+        , JSON.def "pagination" $ decode (pagers  v)
+        ]
+    either (throwError . msg) Override.service (JSON.parse y)
   where
-    getService :: FilePath -> FilePath -> Script (Service Shape)
-    getService d o = do
-    --    say "Load Service" (encode d)
-        v <- getVersion d
-        x <- decode override
-        y <- mergeObjects <$> sequence
-            [ pure x
-            , decode (normal v)
-            , def "waiters"    $ decode (waiters v)
-            , def "pagination" $ decode (pagers  v)
-            ]
-        case parse y of
-            Left  e -> throwError $ "Error parsing " ++ show d ++ " with " ++ e
-            Right x -> return x
-      where
-        override = o </> name <.> "json"
-        normal   = path "normal.json"
-        waiters  = path "waiters.json"
-        pagers   = path "paginators.json"
+    normal  = path "normal.json"
+    waiters = path "waiters.json"
+    pagers  = path "paginators.json"
 
-        path e v = d </> v <.> e
+    override = o </> basename d <.> "json"
+    path e v = d </> v <.> e
 
-        name = basename d
+    decode = fileContents >=> hoistEither . eitherDecode
 
-    getVersion :: FilePath -> Script FilePath
-    getVersion d = do
-        fs <- sortBy (flip compare) <$> scriptIO (FS.listDirectory d)
-        f  <- tryHead ("Failed to get model version from " ++ show d) fs
-        return (basename f)
-
-    decode = contents >=> hoistEither . eitherDecode
+    msg = mappend ("Error in " ++ show d ++ ": ")
 
  -- * Calculate a stable 'amazonka-*' library name per service
  -- * Ensure every shape has documentation (even if 'documentation is missing' string)

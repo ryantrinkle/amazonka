@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- Module      : Gen.Documentation
@@ -12,77 +11,33 @@
 -- Portability : non-portable (GHC extensions)
 
 module Gen.Documentation
-    ( Above (..)
-    , Below (..)
-    , Blank (..)
-    , Doc
-    , append
+    ( Doc
     , format
+    , toHaddock
     ) where
 
 import           Control.Applicative
-import qualified Data.Aeson          as Aeson
+import           Control.Lens
 import           Data.Default.Class
-import           Data.Foldable       (foldMap)
+import           Data.HashMap.Strict (HashMap)
 import           Data.Jason
 import           Data.Monoid
-import           Data.String
 import           Data.Text           (Text)
 import qualified Data.Text           as Text
-import           Gen.Text
 import           Text.Pandoc
 
-data Above a = Above Int a
-data Below a = Below Int a
-data Blank a = Blank Int a
-
-data Doc = Doc Pandoc [Text]
+newtype Doc = Doc Pandoc
     deriving (Eq)
 
 instance Show Doc where
-    show = Text.unpack . haddock 255
-
-instance IsString Doc where
-    fromString = Doc mempty . (:[]) . fromString
+    show = toHaddock 72
 
 instance FromJSON Doc where
     parseJSON = withText "doc" (pure . format)
 
-instance Aeson.ToJSON (Above Doc) where
-    toJSON (Above n d) = Aeson.String (layout n "-- | " "-- " d)
-
-instance Aeson.ToJSON (Below Doc) where
-    toJSON (Below n d) = Aeson.String (layout n "-- ^ " "-- " d)
-
-instance Aeson.ToJSON (Blank Doc) where
-    toJSON (Blank n d) = Aeson.String (layout n mempty mempty d)
-
-layout :: Int -> Text -> Text -> Doc -> Text
-layout n start com = pref . Text.lines . haddock col
-  where
-    pref []     = mempty
-    pref (x:xs) = begin <> x <> foldMap (mappend sep) xs
-
-    begin = indent <> start
-    sep   = "\n" <> indent <> com
-
-    indent = Text.replicate pad (Text.singleton ' ')
-
-    pad = abs n
-    col = abs (80 - pad - 4)
-
-append :: Doc -> Text -> Doc
-append (Doc p xs) x = Doc p (xs ++ [x])
-
 format :: Text -> Doc
-format = (`Doc` []) . readHtml def . Text.unpack
+format = Doc . readHtml def . Text.unpack
 
-haddock :: Int -> Doc -> Text
-haddock col (Doc p xs) = Text.pack h <> sep <> Text.intercalate "\n" xs
-  where
-    sep | [] <- xs    = mempty
-        | p == mempty = mempty
-        | otherwise   = "\n"
-
-    h = writeHaddock (def { writerColumns = col, writerWrapText = True }) p
-
+toHaddock :: Int -> Doc -> String
+toHaddock n (Doc p) =
+    writeHaddock (def { writerColumns = n, writerWrapText = True }) p

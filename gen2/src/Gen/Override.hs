@@ -1,13 +1,10 @@
-{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedLists       #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
-{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
 
 -- Module      : Gen.Override
@@ -25,101 +22,57 @@ module Gen.Override where
 import           Control.Applicative
 import           Control.Error
 import           Control.Lens
-import           Control.Monad.Except
+import           Control.Monad.Error
+import           Control.Monad.Reader
 import           Control.Monad.State.Strict
 import           Data.Bifunctor
-import           Data.CaseInsensitive       (CI)
-import qualified Data.CaseInsensitive       as CI
+import           Data.CaseInsensitive         (CI)
+import qualified Data.CaseInsensitive         as CI
 import           Data.Default.Class
-import           Data.Foldable              (foldl')
-import           Data.HashMap.Strict        (HashMap)
-import qualified Data.HashMap.Strict        as Map
-import           Data.HashSet               (HashSet)
-import qualified Data.HashSet               as Set
-import           Data.List                  (intercalate)
+import qualified Data.Foldable                as Fold
+import           Data.HashMap.Strict          (HashMap)
+import qualified Data.HashMap.Strict          as Map
+import           Data.HashSet                 (HashSet)
+import qualified Data.HashSet                 as Set
+import           Data.List                    (findIndex, intercalate)
 import           Data.Monoid
-import           Data.Text                  (Text)
-import qualified Data.Text                  as Text
+import           Data.Text                    (Text)
+import qualified Data.Text                    as Text
+import qualified Data.Text.Lazy               as LText
+import qualified Data.Text.Lazy.Builder       as Build
 import           Data.Text.Manipulate
+import           Data.Traversable             (for)
 import           Debug.Trace
-import           Gen.Model                  hiding (Name, State)
-import           Gen.OrdMap                 (OrdMap)
-import qualified Gen.OrdMap                 as OrdMap
-import           Gen.Text                   (safeHead)
-import           Gen.Types                  hiding (override)
-
+import           Gen.Model                    hiding (Name, State)
+import           Gen.OrdMap                   (OrdMap)
+import qualified Gen.OrdMap                   as OrdMap
+import           Gen.Text                     (safeHead)
+import           Gen.Types                    hiding (override)
+import qualified HIndent
+import           Language.Haskell.Exts
+import           Language.Haskell.Exts.Pretty (prettyPrint)
+import qualified Language.Haskell.Stylish     as Style
+import           Prelude                      hiding (Enum)
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 
--- -- | Replace operation input/output references with their respective shapes,
--- -- removing the shape from the service if they are not shared.
--- subst :: TextSet
---       -> Service (Typed Shape) (Untyped Ref)
---       -> Service (Typed Shape) (Typed Shape)
--- subst sh s =
---     let (x, y) = runState (Map.traverseWithKey go os) ss
---      in s & svcOperations .~ x & svcShapes .~ y
---   where
---     os = s ^. svcOperations
---     ss = s ^. svcShapes
+-- FIXME: Need to deal with shared request/response types, do the renaming of
+-- said input/outputs, and remove them from the shapes list if necessary.
 
---     go :: MonadError String m
---        => Text
---        -> Operation (Untyped Ref)
---        -> StateT (TextMap (Typed Shape)) m (Operation (Typed Shape))
---     go n o = do
---         rq <- update n                 (o ^. operInput)
---         rs <- update (n <> "Response") (o ^. operOutput)
---         return $! o
---             & operInput  .~ rq
---             & operOutput .~ rs
-
---     update :: MonadError String m
---            => Text
---            -> Untyped Ref
---            -> StateT (TextMap (Typed Shape)) m (Typed Shape)
---     update n r = do
---         let k = r ^. refShape
---         s <- gets (Map.lookup k)
---         case s of
---             Just x | Set.member k sh -> copy n   r s
---             Just x                   -> move n k r s
---             _                        ->
---                 throwError $ "Unable to subst " ++ show n
-
---     -- 1. if not shared, then rename the shape and delete it from the state.
---     -- 2. otherwise, copy the shape
---     -- 3. adjust the shape to suit being a request/response
-
---     -- move :: Text
---     --      -> Text
---     --      -> Ref
---     --      -> Typed Shape
---     --      -> StateT (HashMap Text (Typed Shape)) m (Maybe Ref)
---     move n k r s = modify (Map.delete k) >> copy n r d
-
---     -- copy :: Text
---     --      -> Ref
---     --      -> Typed Shape
---     --      -> State (HashMap Text Data) (Maybe Ref)
---     copy n r s = undefined -- do
---         -- modify (Map.insert n (dataRename n d))
---         -- return (Just (r & refShape .~ n))
+service :: (Functor m, MonadError String m)
+        => Service Shape
+        -> m (Service (Prefix Shape))
+service s = do
+    x <- prefix $ override (s ^. svcOverride . ovOverrides) (s ^. svcShapes)
+    return $! s & svcShapes .~ x
 
 -- | Apply the override rulset to shapes and their respective fields.
-rules :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
-rules o = Map.foldlWithKey' go mempty
+override :: HashMap Text Rules -> HashMap Text Shape -> HashMap Text Shape
+override o = Map.foldlWithKey' go mempty
   where
     go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
 
-     -- FIXME: Renaming should additionally operate over
-     -- the operation input/output.
-
-    shape :: Rules
-          -> TextMap (Untyped Shape)
-          -> Text
-          -> (Untyped Shape)
-          -> TextMap (Untyped Shape)
+    shape :: Rules -> HashMap Text Shape -> Text -> Shape -> HashMap Text Shape
     shape rs acc n s
         | Map.member n replacedBy          = acc
         | Just x <- Map.lookup n renamedTo = shape rs acc x s
@@ -132,73 +85,78 @@ rules o = Map.foldlWithKey' go mempty
               . prefixEnum
               . appendEnum
 
-        requireFields :: Untyped Shape -> Untyped Shape
+        requireFields :: Shape -> Shape
         requireFields = _SStruct . structRequired
             %~ (<> _ruleRequired rs)
 
+        optionalFields :: Shape -> Shape
         optionalFields = _SStruct . structRequired
             %~ (`Set.difference` _ruleOptional rs)
 
-        renameFields :: Untyped Shape -> Untyped Shape
-        renameFields = _SStruct . structMembers %~ first f
+        renameFields :: Shape -> Shape
+        renameFields = _SStruct . structMembers
+            %~ OrdMap.mapWithKey (\k -> (f k,))
           where
             f k = fromMaybe k $ do
                 k' <- Map.lookup (CI.mk (k ^. memOriginal)) (_ruleRenamed rs)
                 return (k & memName .~ k')
 
-        retypeFields :: Untyped Shape -> Untyped Shape
+        retypeFields :: Shape -> Shape
         retypeFields = references %~ f replacedBy . f renamedTo
           where
             f m v = maybe v (\x -> v & refShape .~ x)
                 $ Map.lookup (v ^. refShape) m
 
-        prefixEnum :: Untyped Shape -> Untyped Shape
+        prefixEnum :: Shape -> Shape
         prefixEnum = _SEnum . enumValues %~ f
           where
             f vs = fromMaybe vs $ do
                 p <- _ruleEnumPrefix rs
-                return $! first (memPrefix ?~ p) vs
+                return . Map.fromList
+                       . map (first (p <>))
+                       $ Map.toList vs
 
-        appendEnum :: Untyped Shape -> Untyped Shape
-        appendEnum = _SEnum . enumValues <>~ _ruleEnumValues rs
+        appendEnum :: Shape -> Shape
+        appendEnum = _SEnum . enumValues %~ mappend (_ruleEnumValues rs)
 
-    renamedTo :: TextMap Text
+    renamedTo :: HashMap Text Text
     renamedTo = buildMapping _ruleRenameTo
 
-    replacedBy :: TextMap Text
+    replacedBy :: HashMap Text Text
     replacedBy = buildMapping _ruleReplacedBy
 
-    buildMapping :: (Rules -> Maybe Text) -> TextMap Text
+    buildMapping :: (Rules -> Maybe Text) -> HashMap Text Text
     buildMapping f = Map.fromList $
         mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
 
 -- | Assign unique prefixes to 'Enum' and 'Struct' shapes.
 prefix :: (Functor m, MonadError String m)
-       => TextMap (Shape a)
-       -> m (TextMap (Shape a))
+       => HashMap Text Shape
+       -> m (HashMap Text (Prefix Shape))
 prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
   where
     go :: (Functor m, MonadError String m)
        => Text
-       -> Shape a
-       -> StateT (PS, PS) m (Shape a)
-    go n = \case
-        SStruct x -> SStruct <$> uniq (heuristics n) _1 structMembers x
-        SEnum   x -> SEnum   <$> uniq (mempty : heuristics n) _2 enumValues x
-        s         -> pure s
-      where
-        uniq :: (Functor m, MonadError String m)
-             => [CI Text]
-             -> Lens' (PS, PS) PS
-             -> Lens' a (OrdMap Member v)
-             -> a
-             -> StateT (PS, PS) m a
-        uniq hs f g x = do
-            p <- next n f hs (keys (x ^. g))
-            pure (x & g %~ first (memPrefix ?~ p))
+       -> Shape
+       -> StateT (PS, PS) m (Prefix Shape)
+    go n s = Prefix <$> unique n s <*> pure s
 
-        keys :: OrdMap Member v -> HashSet (CI Text)
-        keys = Set.fromList . map (CI.mk . _memName) . OrdMap.keys
+    unique :: (Functor m, MonadError String m)
+           => Text
+           -> Shape
+           -> StateT (PS, PS) m Text
+    unique n = \case
+        SStruct x -> next n _1 (heuristics n)
+            . Set.fromList
+            . map (CI.mk . _memName)
+            . OrdMap.keys
+            $ x ^. structMembers
+        SEnum   x -> next n _2 (heuristics n)
+            . Set.fromList
+            . map CI.mk
+            . Map.keys
+            $ x ^. enumValues
+        _         -> pure n
 
     next :: (Functor m, MonadError String m)
          => Text
@@ -206,233 +164,141 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
          -> [CI Text]
          -> HashSet (CI Text)
          -> StateT (PS, PS) m Text
+    next k l []     ks = do
+        m <- use l
+        let msg  = "Error selecting prefix for: " <> k
+            er h = show h <> " => " <> show (Map.lookup h m)
+        throwError . intercalate "\n" $
+              ("Error selecting prefix for: " <> Text.unpack k)
+            : ("Fields: " <> show ks)
+            : map er (heuristics k)
     next k l (x:xs) ks = do
         m <- use l
         case Map.lookup x m of
             Just js | not (Set.null (Set.intersection js ks))
                 -> next k l xs ks
             _   -> l %= Map.insertWith (<>) x ks >> pure (CI.original x)
-    next k l _      ks = do
-        m <- use l
-        throwError . intercalate "\n" $
-              ("Error selecting prefix for: " <> Text.unpack k)
-            : ("Fields: " <> show ks)
-            : map (\h -> show h <> " => " <> show (Map.lookup h m)) (heuristics k)
 
     heuristics :: Text -> [CI Text]
-    heuristics n = rules ++ ordinal
+    heuristics n = rules -- ++ ordinal
       where
         -- Acronym preference list.
         rules = map CI.mk $ catMaybes [r1, r2, r3, r4]
 
-        -- SomeTestTType -> STT
+        -- SomeTestType -> STT
         r1 = toAcronym n
 
-        -- SomeTestTType -> S
+        -- SomeTestType -> S
         r3 = Text.toUpper <$> safeHead n
 
-        -- Some -> Some || SomeTestTType -> Some
+        -- Some -> Some || SomeTestType -> Some
         r2 | Text.length n <= 3 = Just n
            | otherwise          = Just (Text.take 3 n)
 
-        -- SomeTestTType -> Som
+        -- SomeTestType -> Som
         r4 = upperHead <$> listToMaybe (splitWords n)
 
         -- Append an ordinal to the generated acronyms.
-        ordinal = concatMap (\i -> map (\x -> mappend x (num i)) rules) [1..3]
+        -- ordinal = concatMap (\i -> map (\x -> mappend x (num i)) rules) [1..3]
 
-        num :: Int -> CI Text
-        num = CI.mk . Text.pack . show
+        num :: Int -> Text
+        num = Text.pack . show
 
--- | Determine the usage of operation input/output shapes.
---
--- A shape is considered 'shared' if it is used as a field of another shape,
--- as opposed to only being referenced by the operation itself.
---
--- Returns a set of shapes that are _not_ shared.
-shared :: TextMap (Operation (Untyped Ref))
-       -> TextMap (Untyped Shape)
-       -> TextSet
-shared oo ss = occur (execState check mempty)
-  where
-    -- FIXME: Need to correctly count a shape being used as a ref as shared.
-    occur :: TextMap Int -> TextSet
-    occur = Set.fromList . Map.keys . Map.filter (> 1)
+-- FIXME: How to deal with reserved words? In the prefixing algos?
 
-    check :: State (TextMap Int) ()
-    check = forM_ (Map.elems oo) $ \o -> do
-        ref (o ^. operInput  . _Just . refShape)
-        ref (o ^. operOutput . _Just . refShape)
+-- pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
+-- pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
+--   where
+--     hoist (Left  e) = throwError (e ++ ": ->" ++ x)
+--     hoist (Right o) = return (Build.toLazyText o)
 
-    ref :: Text -> State (TextMap Int) ()
-    ref n = count n >> maybe (pure ()) shape (Map.lookup n ss)
+--     x = prettyPrintStyleMode style' mode' d
 
-    shape :: Untyped Shape -> State (TextMap Int) ()
-    shape = mapM_ (count . view refShape) . toListOf references
+--     style' = style
+--         { mode           = PageMode
+--         , lineLength     = 80
+--         , ribbonsPerLine = 1.5
+--         }
 
-    count :: Text -> State (TextMap Int) ()
-    count n  = modify (Map.insertWith (+) n 1)
+--     mode' = defaultMode
+--         { spacing = False
+--         , layout  = PPNoLayout
+--         }
 
-constraints' :: (Functor m, MonadError String m)
-             => TextMap (Typed Shape)
-             -> m (TextMap (Derived Shape))
-constraints' ss = execStateT (traverse go (Map.keys ss)) mempty
-  where
-    go :: (Functor m, MonadError String m)
-       => Text
-       -> StateT (TextMap (Derived Shape)) m (Derived Shape)
-    go n = do
-        m <- gets (Map.lookup n)
-        case m of
-            Just s -> return s
-            Nothing ->
-                case Map.lookup n ss of
-                    Nothing -> throwError $ "Missing Shape " ++ Text.unpack n
-                    Just  s -> do
-                        d <- derive s
-                        modify (Map.insert n d)
-                        return d
+-- When prefixing a structs' members you need to retain the unmodified/original
+-- name so the pagination etc lookup can occur
 
-    derive :: (Functor m, MonadError String m)
-           => Typed Shape
-           -> StateT (TextMap (Derived Shape)) m (Derived Shape)
-    derive s = Derived s <$> case s of
-        SList   _ -> pure (base <> list)
-        SMap    _ -> pure (base <> list)
-        SStruct _ -> complex (base <> [COrd, CIsString]) `always` [CGeneric]
-        _         -> pure (constraints s)
-      where
-        list = [CMonoid, CSemigroup]
-        base = [CEq, CRead, CShow, CGeneric]
+-- -- | Context containing the 'Decl' created from a 'Shape', and the corresponding
+-- -- 'Type' which can be used by 'Ref's to point to the correct declaration.
+-- type Universe = HashMap Text (Type, Decl)
 
-        always f xs = f >>= pure . mappend xs
+-- typeOf k = fst `liftM` singleton k
+-- declOf k = snd `liftM` singleton k
 
-        complex = liftA2 (Set.intersection) go' . pure
-          where
-            go' :: (Functor m, MonadError String m)
-                => StateT (TextMap (Derived Shape)) m (HashSet Constraint)
-            go' = do
-                    m <- traverse ref (toListOf references s)
-                    return $! case m of
-                        x:xs -> foldl' Set.intersection x xs
-                        _    -> mempty
+-- singleton :: (MonadError String m, MonadReader Universe m)
+--           => Text
+--           -> m (Type, Decl)
+-- singleton k = asks (Map.lookup k) >>=
+--     maybe (throwError ("Shape doesn't exist: " ++ Text.unpack k)) return
 
-    ref :: (Functor m, MonadError String m)
-        => Typed Ref
-        -> StateT (TextMap (Derived Shape)) m (HashSet Constraint)
-    ref r = _derConst <$> go (r ^. refShape)
+-- -- | Instantiate the type universe.
+-- instantiate :: (Monad m, MonadError String m)
+--             => HashMap Text Shape
+--             -> m Universe
+-- instantiate ss = Fold.foldrM go mempty (Map.toList ss)
+--   where
+--     go (k, v) ts = do
+--         d <- declare k v
+--         t <- solve d
+--         return $! Map.insert k (t, d) ts
 
--- | Replace the untyped 'Text' references with actual Haskell 'Type's.
-types :: (Functor m, MonadError String m)
-      => Protocol
-      -> TextMap (Untyped Shape)
-      -> m (TextMap (Typed Shape))
-types proto ss = evalStateT (traverse (id references ref) ss) mempty
-  where
-    ref :: MonadError String m
-        => Untyped Ref
-        -> StateT (TextMap TType) m (Typed Ref)
-    ref r = flip (set refAnn) r `liftM` memo (_refShape r)
+-- solve :: MonadError String m => Decl -> m Type
+-- solve = TyVar (Ident )
 
-    memo :: MonadError String m
-         => Text
-         -> StateT (TextMap TType) m TType
-    memo n = do
-        m <- gets (Map.lookup n)
-        case m of
-            Just t -> return t
-            Nothing -> do
-                t <- case Map.lookup n ss of
-                    Just !x -> solve n x
-                    Nothing -> return (TType n)
-                modify (Map.insert n t)
-                return t
+-- -- | Create Haskell AST declaration from a 'Shape'.
+-- declare :: (Monad m, MonadError String m) => Text -> Shape -> m Decl
+-- declare (Text.unpack -> name) = \case
+--     -- SList   x ->
+--     -- SMap    x ->
+--     SStruct x -> return (struct x)
+--     -- SString x ->
+--     -- SEnum   x ->
+--     -- SBlob   x ->
+--     -- SBool   x ->
+--     -- STime   x ->
+--     -- SInt    x ->
+--     -- SDouble x ->
+--     -- SLong   x ->
+--     _ -> throwError $ "Attempting to solve unsupported type: " ++ name
+--   where
+--     struct :: Struct -> Decl
+--     struct Struct{..} = record (fields _structMembers) (derive ["Eq", "Show"])
 
-    solve :: MonadError String m
-          => Text
-          -> Untyped Shape
-          -> StateT (TextMap TType) m TType
-    solve n = \case
-        SStruct _ -> return (TType n)
-        SEnum   _ -> return (TType n)
-        SString _ -> return (TType "Text")
-        SBool   _ -> return (TType "Bool")
-        SDouble _ -> return (TType "Double")
-        SInt    x -> return (number x "Int")
-        SLong   x -> return (number x "Integer")
-        STime   x -> return (time x)
-        SBlob   x -> return (stream x)
-        SList   x -> list x
-        SMap    x -> hmap x
-      where
-        hmap x = do
-            k <- ref (x ^. mapKey)
-            v <- ref (x ^. mapValue)
-            return $! flatten (TEMap e i j (k ^. refAnn) (v ^. refAnn))
-          where
-            e = fromMaybe "entry" Nothing -- (r ^. refLocationName)
-            i = fromMaybe "key"   (x ^. mapKey   . refLocationName)
-            j = fromMaybe "value" (x ^. mapValue . refLocationName)
+--     record :: [([Name], Type)] -> [Deriving] -> Decl
+--     record fs = DataDecl l s [] n [] ctor
+--       where
+--         ctor = [QualConDecl (SrcLoc name 0 10) [] [] (RecDecl n fs)]
 
-            flatten
-                | x ^. mapFlattened = TFlat
-                | otherwise         = id
+--         s | [_] <- fs = NewType
+--           | otherwise = DataType
 
-        list x = do
-            t <- ref (x ^. listMember)
-            return $! flatten (nonEmpty (t ^. refAnn))
-          where
-            -- flatten (TyApp (TyApp nonEmpty member) )
-            flatten
-                | x ^. listFlattened = TFlat
-                | otherwise          = id
+--     fields :: OrdMap Ref -> [([Name], Type)]
+--     fields (ordMap -> fs) = map f fs
+--       where
+--         f (Text.unpack -> k, Text.unpack . _refShape -> v) =
+--             ([Ident k], TyCon (UnQual (Ident v)))
 
-            nonEmpty
-                | (x ^. listMin) > 0 = TList1 member
-                | otherwise          = TList  member
+--     derive :: [Text] -> [Deriving]
+--     derive = map f
+--       where
+--         f (Text.unpack -> n) = (UnQual (Ident n), [])
 
-            member = fromMaybe "member" (x ^. listMember . refLocationName)
+--     l = SrcLoc name 0 0
+--     n = Ident name
 
-            -- defMember
-            --     | proto == Query = "member"
-            --     | proto == EC2   = "member"
-            --     | otherwise      = error $ "Unable to get locationName: " ++ show x
+-- -- lens = [sig, pat]
+-- --   where
+-- --     sig = TypeSig l [Ident l "naeRuleAction"] (TyApp l (TyApp l (TyCon l (UnQual l (Ident l "Lens'"))) (TyCon l (UnQual l (Ident l "NetworkAclEntry")))) (TyParen l (TyApp l (TyCon l (UnQual l (Ident l "Maybe"))) (TyCon l (UnQual l (Ident l "RuleAction"))))))
+-- --     pat = PatBind l (PVar l (Ident l "naeRuleAction")) (UnGuardedRhs l (App l (App l (Var l (UnQual l (Ident l "lens"))) (Var l (UnQual l (Ident l "_naeRuleAction")))) (Paren l (Lambda l [PVar l (Ident l "s"),PVar l (Ident l "a")] (RecUpdate l (Var l (UnQual l (Ident l "s"))) [FieldUpdate l (UnQual l (Ident l "_naeRuleAction")) (Var l (UnQual l (Ident l "a")))]))))) Nothing
 
-        stream = const (TType "Stream") -- figure out streaming or not
-
-        time = TPrim
-             . PTime
-             . fromMaybe RFC822 -- This should take into account different protocol defaults
-             . view timeTimestampFormat
-
-        number x
-            | x ^. numMin > Just 0 = const (TType "Natural")
-            | otherwise            = TType
-
-service :: (Functor m, MonadError String m)
-        => Service (Untyped Shape) (Untyped Ref)
-        -> m (Service (Derived Shape) (Untyped Ref))
-service s = do
-    -- 1. Override rules are applied to the raw AST.
-    let os = rules (s ^. ovOverrides) (s ^. svcShapes)
-
-    -- 2. Shape's members/fields are given a unique prefix.
-    ps <- prefix os
-
-    -- 3. Shapes which are specified as operation inputs/outputs are checked
-    --    for sharing/commonality.
-    -- let sh = shared (s ^. svcOperations) ps
-
-    -- 4. The textual references in operations and shapes are replaced
-    --    with actual Haskell types.
-    ts <- types (s ^. metaProtocol) ps
-
-    -- 5. Solve the constraints for the annotated types.
-    cs <- constraints' ts
-
-    -- 6. Substitution is done to replace the operation's input/output
-    --    references with actual shapes, and any non-shared shapes
-    --    are then removed from the service's shape map.
---    return $! subst sh (s & svcShapes .~ ts)
-
-    return (s { _svcShapes = cs })
+-- --     l = mempty mempty

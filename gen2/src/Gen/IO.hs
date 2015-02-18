@@ -67,8 +67,8 @@ import qualified Text.EDE                  as EDE
 -- failure :: FilePath -> String -> Script a
 -- failure p msg = throwError $ msg <> " in " <> Text.unpack (encode p)
 
-contents :: FilePath -> Script LBS.ByteString
-contents p = do
+fileContents :: FilePath -> Script LBS.ByteString
+fileContents p = do
 --    say "Read File" (encode p)
     b <- scriptIO (FS.isFile p)
     if b

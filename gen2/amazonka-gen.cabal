@@ -22,9 +22,10 @@ executable amazonka-gen
 
     other-modules:
           Gen.AST
-        , Gen.Doc
+        , Gen.Documentation
         , Gen.IO
         , Gen.JSON
+        , Gen.Library
         , Gen.Model
         , Gen.Model.Endpoint
         , Gen.Model.Index
@@ -33,6 +34,7 @@ executable amazonka-gen
         , Gen.Model.URI
         , Gen.Model.Waiter
         , Gen.OrdMap
+        , Gen.Override
         , Gen.TH
         , Gen.Text
         , Gen.Types
@@ -71,3 +73,4 @@ executable amazonka-gen
         , transformers
         , unordered-containers
         , vector
+        , directory-tree
