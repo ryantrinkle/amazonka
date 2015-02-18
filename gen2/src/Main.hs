@@ -130,8 +130,6 @@ validate o = flip execStateT o $ do
 
 main :: IO ()
 main = runScript $ do
---    scriptIO $ hSetBuffering stdout LineBuffering
-
     o <- scriptIO $ customExecParser (prefs showHelpOnError) options
         >>= validate
 
