@@ -29,7 +29,9 @@ import           Data.Monoid
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 import qualified Data.Text.IO              as Text
+import qualified Data.Text.Lazy            as LText
 import qualified Data.Text.Lazy.IO         as LText
+import qualified Filesystem                as FS
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
 import           Gen.JSON
@@ -40,15 +42,10 @@ import           System.Directory.Tree     hiding (dir, file)
 import           Text.EDE                  (Template)
 import qualified Text.EDE                  as EDE
 
--- Maybe the dirtree could be paramterized over a conduit and the assets
--- could just be copied via that?
-
--- Printing/logging can be put into the a of DirTree a also
-
 -- tree :: FilePath
---      -> Template Protocol
---      -> Service (Prefix Shape)
---      -> DirTree String
+--      -> Templates Protocol
+--      -> Service s
+--      -> AnchoredDirTree (Either String Text)
 tree d t s = encodeString d :/ dir lib
     [ dir "src" []
     , dir "examples"
@@ -72,21 +69,27 @@ tree d t s = encodeString d :/ dir lib
     , file "README.md" readme
     ]
   where
-    cabal           = EDE.eitherRender (t ^. tmplCabal)           mempty
-    readme          = EDE.eitherRender (t ^. tmplReadme)          mempty
+    cabal           = render (t ^. tmplCabal)           mempty
+    readme          = render (t ^. tmplReadme)          mempty
 
-    cabalExample    = EDE.eitherRender (t ^. tmplCabalExample)    mempty
-    makefileExample = EDE.eitherRender (t ^. tmplMakefileExample) mempty
+    cabalExample    = render (t ^. tmplCabalExample)    mempty
+    makefileExample = render (t ^. tmplMakefileExample) mempty
 
-    service         = EDE.eitherRender (t ^. tmplService)         mempty
-    types           = EDE.eitherRender (t ^. tmplTypes $ proto)           mempty
-    waiters         = EDE.eitherRender (t ^. tmplWaiters)         mempty
+    service         = render (t ^. tmplService)         mempty
+    types           = render (t ^. tmplTypes $ proto)   mempty
+    waiters         = render (t ^. tmplWaiters)         mempty
 
     operations      = []
 
+    render t = EDE.eitherRender t
+
     proto  = s ^. metaProtocol
-    lib    = fromText (s ^. svcLibrary)
+
     abbrev = fromText (s ^. svcAbbrev)
+    lib    = fromText (s ^. svcLibrary)
+
+root :: AnchoredDirTree a -> FilePath
+root (p :/ d) = decodeString p </> decodeString (name d)
 
 (<//>) :: FilePath -> DirTree a -> DirTree a
 p <//> d = dir p [d]
