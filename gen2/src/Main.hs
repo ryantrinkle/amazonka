@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
@@ -46,6 +47,7 @@ import           Options.Applicative
 import           Prelude                   hiding (FilePath)
 import           System.Directory.Tree
 import           System.IO                 hiding (FilePath)
+import qualified Text.EDE                  as EDE
 
 data Options = Options
     { _optOutput    :: FilePath
@@ -128,30 +130,22 @@ validate o = flip execStateT o $ do
 
 main :: IO ()
 main = runScript $ do
-    -- Makes errors easier to read due to output location correspondence.
-    scriptIO $ hSetBuffering stdout LineBuffering
+--    scriptIO $ hSetBuffering stdout LineBuffering
 
     o <- scriptIO $ customExecParser (prefs showHelpOnError) options
         >>= validate
 
+    t <- templates (o ^. optTemplates)
+
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
-        d <- writeTree $ Library.tree (o ^. optOutput) undefined s --(o ^. optTemplates)
-        return ()
+        d <- writeTree $ Library.tree (o ^. optOutput) t s
 
--- modules:
--- Gen.AST.hs     -> transform the model into a Haskell AST
--- Gen.Library.hs -> directory structure, assets, rendering of .hs files
+        copyDirectory (o ^. optAssets) (Library.root d)
 
---        scriptIO . LText.writeFile "test.hs" . Build.toLazyText . Fold.foldMap (<> "\n") $ rights xs
+        say "Completed" (s ^. svcName)
 
-                -- Left  e -> scriptIO (putStrLn e)
-                -- Right x -> LText.putStrLn (Build.toLazyText x)
-
---        scriptIO $ either putStrLn Text.putStrLn (pretty $ typesModule s)
---        say "Completed" (s ^. svcName)
-
---    say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
+    say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
 version :: FilePath -> Script FilePath
 version d = do
@@ -182,6 +176,41 @@ service d o = do
     decode = fileContents >=> hoistEither . eitherDecode
 
     msg = mappend ("Error in " ++ show d ++ ": ")
+
+templates :: FilePath -> Script (Templates Protocol)
+templates d = do
+    f <- Templates
+        <$> load "cabal.ede"
+        <*> load "service.ede"
+        <*> load "waiters.ede"
+        <*> load "readme.ede"
+        <*> load "example-cabal.ede"
+        <*> load "example-makefile.ede"
+
+    x <- (,)
+        <$> load "types-xml.ede"
+        <*> load "operation-xml.ede"
+
+    j <- (,)
+        <$> load "types-json.ede"
+        <*> load "operation-json.ede"
+
+    q <- (,)
+        <$> load "types-query.ede"
+        <*> load "operation-query.ede"
+
+    return $! f $ \case
+        JSON     -> j
+        RestJSON -> j
+        XML      -> x
+        RestXML  -> x
+        Query    -> q
+        EC2      -> q
+  where
+    load p = do
+        let f = encode (d </> p)
+        say "Parse Template" f
+        scriptIO (EDE.eitherParseFile (Text.unpack f)) >>= hoistEither
 
  -- * Calculate a stable 'amazonka-*' library name per service
  -- * Ensure every shape has documentation (even if 'documentation is missing' string)
