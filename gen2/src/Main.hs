@@ -139,7 +139,7 @@ main = runScript $ do
 
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
-        d <- writeTree $ Library.tree (o ^. optOutput) t s
+        d <- writeTree "Write Library" $ Library.tree (o ^. optOutput) t s
         copyDirectory (o ^. optAssets) (Library.root d)
 
         say "Completed" (s ^. svcName)
