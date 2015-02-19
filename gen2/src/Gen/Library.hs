@@ -24,11 +24,11 @@ import           Prelude                   hiding (FilePath)
 import           System.Directory.Tree     hiding (file)
 import qualified Text.EDE                  as EDE
 
-tree :: FilePath
-     -> Templates Protocol
-     -> Service s
-     -> AnchoredDirTree (Either String LText.Text)
-tree d t s = encodeString d :/ dir lib
+render :: FilePath
+       -> Templates Protocol
+       -> Service a b
+       -> AnchoredDirTree (Either String LText.Text)
+render d t s = encodeString d :/ dir lib
     [ dir "src" []
     , dir "examples"
         [ dir "src" []

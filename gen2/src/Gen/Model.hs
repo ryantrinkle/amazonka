@@ -303,19 +303,19 @@ data HTTP = HTTP
 deriveFromJSON camel ''HTTP
 
 -- | An individual service opereration.
-data Operation = Operation
+data Operation a = Operation
     { _operName             :: !Text
     , _operDocumentation    :: Maybe Doc
     , _operDocumentationUrl :: Maybe Text
     , _operHttp             :: !HTTP
-    , _operInput            :: Maybe Ref
-    , _operOutput           :: Maybe Ref
+    , _operInput            :: Maybe a
+    , _operOutput           :: Maybe a
     , _operErrors           :: [Ref]
     } deriving (Eq, Show)
 
 makeLenses ''Operation
 
-instance FromJSON Operation where
+instance FromJSON (Operation Ref) where
     parseJSON = withObject "operation" $ \o -> Operation
         <$> o .:  "name"
         <*> o .:? "documentation"
@@ -362,26 +362,26 @@ data Metadata = Metadata
 makeClassy ''Metadata
 deriveFromJSON camel ''Metadata
 
-data Service s = Service
+data Service a b = Service
     { _svcMetadata         :: !Metadata
     , _svcLibrary          :: !Text
     , _svcDocumentation    :: !Doc
     , _svcDocumentationUrl :: !Text
-    , _svcOperations       :: HashMap Text Operation
-    , _svcShapes           :: HashMap Text s
+    , _svcOperations       :: HashMap Text (Operation b)
+    , _svcShapes           :: HashMap Text a
     , _svcOverride         :: !Override
     } deriving (Eq, Show)
 
 makeLenses ''Service
 
-instance HasMetadata (Service s) where metadata = svcMetadata
-instance HasOverride (Service s) where override = svcOverride
+instance HasMetadata (Service a b) where metadata = svcMetadata
+instance HasOverride (Service a b) where override = svcOverride
 
-svcName, svcAbbrev :: Getter (Service s) Text
+svcName, svcAbbrev :: Getter (Service a b) Text
 svcName   = metaServiceFullName     . to nameToText
 svcAbbrev = metaServiceAbbreviation . to abbrevToText
 
-instance FromJSON (Service Shape) where
+instance FromJSON (Service Shape Ref) where
     parseJSON = withObject "service" $ \o -> Service
         <$> o .:  "metadata"
         <*> o .:  "library"

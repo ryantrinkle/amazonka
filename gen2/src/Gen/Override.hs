@@ -37,6 +37,7 @@ import           Data.Monoid
 import           Data.Text                  (Text)
 import qualified Data.Text                  as Text
 import           Data.Text.Manipulate
+import           Data.Traversable           (traverse)
 import           Gen.Model                  hiding (Name, State)
 import qualified Gen.OrdMap                 as OrdMap
 import           Gen.Text                   (safeHead)
@@ -47,75 +48,46 @@ type PS = HashMap (CI Text) (HashSet (CI Text))
 -- FIXME: Need to deal with shared request/response types, do the renaming of
 -- said input/outputs, and remove them from the shapes list if necessary.
 
+-- Leave the request/response types in the Types module, use the Refs as intended
+
 service :: (Functor m, MonadError String m)
-        => Service Shape
-        -> m (Service (Prefix Shape))
+        => Service Shape Ref
+        -> m (Service (Prefix Shape) Ref)
 service s = do
     x <- prefix $ override (s ^. svcOverride . ovOverrides) (s ^. svcShapes)
     return $! s & svcShapes .~ x
 
--- | Apply the override rulset to shapes and their respective fields.
-override :: HashMap Text Rules -> HashMap Text Shape -> HashMap Text Shape
-override o = Map.foldlWithKey' go mempty
-  where
-    go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
 
-    shape :: Rules -> HashMap Text Shape -> Text -> Shape -> HashMap Text Shape
-    shape rs acc n s
-        | Map.member n replacedBy          = acc
-        | Just x <- Map.lookup n renamedTo = shape rs acc x s
-        | otherwise                        = Map.insert n (rules s) acc
-      where
-        rules = requireFields
-              . optionalFields
-              . renameFields
-              . retypeFields
-              . prefixEnum
-              . appendEnum
+-- -- | Determine sharing of request and response types, and transform the respective
+-- -- refs into a whole shape.
+-- sharing :: HashMap Text (Operation Ref)
+--         -> HashMap Text (Prefix Shape)
+--         -> HashMap (Operation (Prefix Shape))
+-- sharing os ss = traverse go os
 
-        requireFields :: Shape -> Shape
-        requireFields = _SStruct . structRequired
-            %~ (<> _ruleRequired rs)
+--   where
+--     go o = do
+--         rq <- ref (o ^. operInput)
+--         rs <- ref (o ^. operOutput)
+--         return $!
+--              o & operInput  ?~ rq
+--                & operOutput ?~ rs
 
-        optionalFields :: Shape -> Shape
-        optionalFields = _SStruct . structRequired
-            %~ (`Set.difference` _ruleOptional rs)
+--     ref Nothing  = pure placeholder
+--     ref (Just r) = do
+--         Map.lookup
 
-        renameFields :: Shape -> Shape
-        renameFields = _SStruct . structMembers
-            %~ OrdMap.mapWithKey (\k -> (f k,))
-          where
-            f k = fromMaybe k $ do
-                k' <- Map.lookup (CI.mk (k ^. memOriginal)) (_ruleRenamed rs)
-                return (k & memName .~ k')
+-- Leave the request/response types in the Types module?
 
-        retypeFields :: Shape -> Shape
-        retypeFields = references %~ f replacedBy . f renamedTo
-          where
-            f m v = maybe v (\x -> v & refShape .~ x)
-                $ Map.lookup (v ^. refShape) m
-
-        prefixEnum :: Shape -> Shape
-        prefixEnum = _SEnum . enumValues %~ f
-          where
-            f vs = fromMaybe vs $ do
-                p <- _ruleEnumPrefix rs
-                return . Map.fromList
-                       . map (first (p <>))
-                       $ Map.toList vs
-
-        appendEnum :: Shape -> Shape
-        appendEnum = _SEnum . enumValues %~ mappend (_ruleEnumValues rs)
-
-    renamedTo :: HashMap Text Text
-    renamedTo = buildMapping _ruleRenameTo
-
-    replacedBy :: HashMap Text Text
-    replacedBy = buildMapping _ruleReplacedBy
-
-    buildMapping :: (Rules -> Maybe Text) -> HashMap Text Text
-    buildMapping f = Map.fromList $
-        mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
+--     placeholder = SStruct $ Struct
+--         { _structDocumentation = Nothing
+--         , _structRequired      = mempty
+--         , _structPayload       = Nothing
+--         , _structXmlNamespace  = Nothing
+--         , _structException     = Nothing
+--         , _structFault         = Nothing
+--         , _structMembers       = mempty
+--         }
 
 -- | Assign unique prefixes to 'Enum' and 'Struct' shapes.
 prefix :: (Functor m, MonadError String m)
@@ -189,6 +161,69 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
 
         num :: Int -> CI Text
         num = CI.mk . Text.pack . show
+
+-- | Apply the override rulset to shapes and their respective fields.
+override :: HashMap Text Rules -> HashMap Text Shape -> HashMap Text Shape
+override o = Map.foldlWithKey' go mempty
+  where
+    go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
+
+    shape :: Rules -> HashMap Text Shape -> Text -> Shape -> HashMap Text Shape
+    shape rs acc n s
+        | Map.member n replacedBy          = acc
+        | Just x <- Map.lookup n renamedTo = shape rs acc x s
+        | otherwise                        = Map.insert n (rules s) acc
+      where
+        rules = requireFields
+              . optionalFields
+              . renameFields
+              . retypeFields
+              . prefixEnum
+              . appendEnum
+
+        requireFields :: Shape -> Shape
+        requireFields = _SStruct . structRequired
+            %~ (<> _ruleRequired rs)
+
+        optionalFields :: Shape -> Shape
+        optionalFields = _SStruct . structRequired
+            %~ (`Set.difference` _ruleOptional rs)
+
+        renameFields :: Shape -> Shape
+        renameFields = _SStruct . structMembers
+            %~ OrdMap.mapWithKey (\k -> (f k,))
+          where
+            f k = fromMaybe k $ do
+                k' <- Map.lookup (CI.mk (k ^. memOriginal)) (_ruleRenamed rs)
+                return (k & memName .~ k')
+
+        retypeFields :: Shape -> Shape
+        retypeFields = references %~ f replacedBy . f renamedTo
+          where
+            f m v = maybe v (\x -> v & refShape .~ x)
+                $ Map.lookup (v ^. refShape) m
+
+        prefixEnum :: Shape -> Shape
+        prefixEnum = _SEnum . enumValues %~ f
+          where
+            f vs = fromMaybe vs $ do
+                p <- _ruleEnumPrefix rs
+                return . Map.fromList
+                       . map (first (p <>))
+                       $ Map.toList vs
+
+        appendEnum :: Shape -> Shape
+        appendEnum = _SEnum . enumValues %~ mappend (_ruleEnumValues rs)
+
+    renamedTo :: HashMap Text Text
+    renamedTo = buildMapping _ruleRenameTo
+
+    replacedBy :: HashMap Text Text
+    replacedBy = buildMapping _ruleReplacedBy
+
+    buildMapping :: (Rules -> Maybe Text) -> HashMap Text Text
+    buildMapping f = Map.fromList $
+        mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
 
 -- FIXME: How to deal with reserved words? In the prefixing algos?
 
