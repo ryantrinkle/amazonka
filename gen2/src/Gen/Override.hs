@@ -22,37 +22,25 @@ module Gen.Override where
 import           Control.Applicative
 import           Control.Error
 import           Control.Lens
-import           Control.Monad.Error
-import           Control.Monad.Reader
+import           Control.Monad.Except
 import           Control.Monad.State.Strict
 import           Data.Bifunctor
-import           Data.CaseInsensitive         (CI)
-import qualified Data.CaseInsensitive         as CI
+import           Data.CaseInsensitive       (CI)
+import qualified Data.CaseInsensitive       as CI
 import           Data.Default.Class
-import qualified Data.Foldable                as Fold
-import           Data.HashMap.Strict          (HashMap)
-import qualified Data.HashMap.Strict          as Map
-import           Data.HashSet                 (HashSet)
-import qualified Data.HashSet                 as Set
-import           Data.List                    (findIndex, intercalate)
+import           Data.HashMap.Strict        (HashMap)
+import qualified Data.HashMap.Strict        as Map
+import           Data.HashSet               (HashSet)
+import qualified Data.HashSet               as Set
+import           Data.List                  (intercalate)
 import           Data.Monoid
-import           Data.Text                    (Text)
-import qualified Data.Text                    as Text
-import qualified Data.Text.Lazy               as LText
-import qualified Data.Text.Lazy.Builder       as Build
+import           Data.Text                  (Text)
+import qualified Data.Text                  as Text
 import           Data.Text.Manipulate
-import           Data.Traversable             (for)
-import           Debug.Trace
-import           Gen.Model                    hiding (Name, State)
-import           Gen.OrdMap                   (OrdMap)
-import qualified Gen.OrdMap                   as OrdMap
-import           Gen.Text                     (safeHead)
-import           Gen.Types                    hiding (override)
-import qualified HIndent
-import           Language.Haskell.Exts
-import           Language.Haskell.Exts.Pretty (prettyPrint)
-import qualified Language.Haskell.Stylish     as Style
-import           Prelude                      hiding (Enum)
+import           Gen.Model                  hiding (Name, State)
+import qualified Gen.OrdMap                 as OrdMap
+import           Gen.Text                   (safeHead)
+import           Gen.Types                  hiding (override)
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 
@@ -166,12 +154,10 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
          -> StateT (PS, PS) m Text
     next k l []     ks = do
         m <- use l
-        let msg  = "Error selecting prefix for: " <> k
-            er h = show h <> " => " <> show (Map.lookup h m)
         throwError . intercalate "\n" $
               ("Error selecting prefix for: " <> Text.unpack k)
             : ("Fields: " <> show ks)
-            : map er (heuristics k)
+            : map (\h -> show h <> " => " <> show (Map.lookup h m)) (heuristics k)
     next k l (x:xs) ks = do
         m <- use l
         case Map.lookup x m of
@@ -180,7 +166,7 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
             _   -> l %= Map.insertWith (<>) x ks >> pure (CI.original x)
 
     heuristics :: Text -> [CI Text]
-    heuristics n = rules -- ++ ordinal
+    heuristics n = rules ++ ordinal
       where
         -- Acronym preference list.
         rules = map CI.mk $ catMaybes [r1, r2, r3, r4]
@@ -199,10 +185,10 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
         r4 = upperHead <$> listToMaybe (splitWords n)
 
         -- Append an ordinal to the generated acronyms.
-        -- ordinal = concatMap (\i -> map (\x -> mappend x (num i)) rules) [1..3]
+        ordinal = concatMap (\i -> map (\x -> mappend x (num i)) rules) [1..3]
 
-        num :: Int -> Text
-        num = Text.pack . show
+        num :: Int -> CI Text
+        num = CI.mk . Text.pack . show
 
 -- FIXME: How to deal with reserved words? In the prefixing algos?
 

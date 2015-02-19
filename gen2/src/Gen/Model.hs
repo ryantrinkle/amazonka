@@ -24,18 +24,15 @@ import           Control.Lens
 import           Control.Monad
 import           Data.Bifunctor
 import           Data.CaseInsensitive (CI)
-import qualified Data.CaseInsensitive as CI
-import           Data.Function        (on)
 import           Data.HashMap.Strict  (HashMap)
 import qualified Data.HashMap.Strict  as Map
 import           Data.HashSet         (HashSet)
 import           Data.Jason
-import           Data.Jason.Types     (mkObject, unObject)
 import           Data.Monoid
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
 import           Gen.Documentation
-import           Gen.Model.Index      as Model
+-- import           Gen.Model.Index      as Model
 import           Gen.Model.Paginator  as Model
 import           Gen.Model.Retrier    as Model
 import           Gen.Model.URI        as Model

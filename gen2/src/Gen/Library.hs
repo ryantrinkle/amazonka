@@ -12,40 +12,21 @@
 
 module Gen.Library where
 
-import           Control.Applicative
-import           Control.Error
 import           Control.Lens              ((^.))
-import           Control.Monad
-import           Control.Monad.Error
-import           Control.Monad.IO.Class
-import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
-import           Data.Bifunctor
-import           Data.ByteString           (ByteString)
-import qualified Data.ByteString.Lazy      as LBS
-import           Data.List                 (sort)
-import           Data.Maybe
 import           Data.Monoid
-import           Data.Text                 (Text)
-import qualified Data.Text                 as Text
-import qualified Data.Text.IO              as Text
 import qualified Data.Text.Lazy            as LText
-import qualified Data.Text.Lazy.IO         as LText
-import qualified Filesystem                as FS
-import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
-import           Gen.JSON
 import           Gen.Model
 import           Gen.Types
 import           Prelude                   hiding (FilePath)
-import           System.Directory.Tree     hiding (dir, file)
-import           Text.EDE                  (Template)
+import           System.Directory.Tree     hiding (file)
 import qualified Text.EDE                  as EDE
 
--- tree :: FilePath
---      -> Templates Protocol
---      -> Service s
---      -> AnchoredDirTree (Either String Text)
+tree :: FilePath
+     -> Templates Protocol
+     -> Service s
+     -> AnchoredDirTree (Either String LText.Text)
 tree d t s = encodeString d :/ dir lib
     [ dir "src" []
     , dir "examples"
@@ -65,23 +46,20 @@ tree d t s = encodeString d :/ dir lib
             ]
         ]
     , file (lib <.> "cabal") cabal
---    , file "Makefile" makefile
     , file "README.md" readme
     ]
   where
-    cabal           = render (t ^. tmplCabal)           mempty
-    readme          = render (t ^. tmplReadme)          mempty
+    cabal           = EDE.eitherRender (t ^. tmplCabal)           mempty
+    readme          = EDE.eitherRender (t ^. tmplReadme)          mempty
 
-    cabalExample    = render (t ^. tmplCabalExample)    mempty
-    makefileExample = render (t ^. tmplMakefileExample) mempty
+    cabalExample    = EDE.eitherRender (t ^. tmplCabalExample)    mempty
+    makefileExample = EDE.eitherRender (t ^. tmplMakefileExample) mempty
 
-    service         = render (t ^. tmplService)         mempty
-    types           = render (t ^. tmplTypes $ proto)   mempty
-    waiters         = render (t ^. tmplWaiters)         mempty
+    service         = EDE.eitherRender (t ^. tmplService)         mempty
+    types           = EDE.eitherRender (t ^. tmplTypes $ proto)   mempty
+    waiters         = EDE.eitherRender (t ^. tmplWaiters)         mempty
 
     operations      = []
-
-    render t = EDE.eitherRender t
 
     proto  = s ^. metaProtocol
 

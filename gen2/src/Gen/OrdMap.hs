@@ -22,29 +22,11 @@ module Gen.OrdMap
 
 import           Control.Applicative
 import           Control.Lens
-import           Data.Attoparsec.Text      (Parser)
-import qualified Data.Attoparsec.Text      as Parse
-import           Data.Bifunctor
-import           Data.Bifunctor
-import           Data.CaseInsensitive      (CI)
-import qualified Data.CaseInsensitive      as CI
-import           Data.Foldable             (Foldable)
-import           Data.Hashable
-import           Data.HashMap.Strict       (HashMap)
-import qualified Data.HashMap.Strict       as Map
-import           Data.HashSet              (HashSet)
-import qualified Data.HashSet              as Set
+import           Data.Foldable       (Foldable)
 import           Data.Jason.Types
 import           Data.Monoid
-import           Data.SemVer               (Version, fromText, toText)
-import           Data.String               (IsString)
-import           Data.Text                 (Text)
-import           Data.Traversable          (Traversable)
-import qualified Filesystem.Path.CurrentOS as Path
-import           Gen.TH
-import           GHC.TypeLits
-import           Prelude                   hiding (map)
-import           Text.EDE                  (Template)
+import           Data.Text           (Text)
+import           Prelude             hiding (map)
 
 data OrdMap k v = OrdMap { toList :: [(k, v)] }
     deriving (Eq, Functor, Foldable, Traversable, Show)

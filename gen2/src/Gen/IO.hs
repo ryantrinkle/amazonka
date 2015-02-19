@@ -17,57 +17,43 @@ module Gen.IO where
 import           Control.Applicative
 import           Control.Error
 import           Control.Monad
-import           Control.Monad.Error
-import           Control.Monad.IO.Class
-import qualified Data.Aeson                as A
-import           Data.Aeson.Encode.Pretty
-import           Data.Bifunctor
-import           Data.ByteString           (ByteString)
+import           Control.Monad.Except
 import qualified Data.ByteString.Lazy      as LBS
-import           Data.Jason                (eitherDecode')
-import           Data.Jason.Types          (FromJSON, Object, Value (..),
-                                            mkObject)
-import           Data.List                 (intercalate, sort)
+import           Data.List                 (intercalate)
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 import qualified Data.Text.IO              as Text
-import qualified Data.Text.IO              as Text
 import qualified Data.Text.Lazy            as LText
 import qualified Data.Text.Lazy.IO         as LText
 import qualified Filesystem                as FS
 import           Filesystem.Path.CurrentOS hiding (encode)
-import           Gen.JSON
-import           Gen.Model
 import           Gen.Types
 import           Prelude                   hiding (FilePath)
 import           System.Directory.Tree
-import           Text.EDE                  (Template)
-import qualified Text.EDE                  as EDE
 
 writeTree :: AnchoredDirTree (Either String LText.Text)
           -> Script (AnchoredDirTree ())
 writeTree t = do
-    d <- scriptIO (writeDirectoryWith go t)
-    verifyTree d
+    d <- scriptIO (writeDirectoryWith write t)
+    verify d
     return d
   where
-    go p x = do
+    write p x = do
         say "Write Tree" (Text.pack p)
         either (throwError . userError)
                (LText.writeFile p)
                x
 
-verifyTree :: AnchoredDirTree a -> Script ()
-verifyTree (_ :/ d)
-    | [] <- xs  = return ()
-    | otherwise = throwError (intercalate "\n" xs)
-  where
-    xs = mapMaybe f (failures d)
+    verify (_ :/ d)
+        | [] <- xs  = return ()
+        | otherwise = throwError (intercalate "\n" xs)
+      where
+        xs = mapMaybe f (failures d)
 
-    f (Failed _ e) = Just (show e)
-    f _            = Nothing
+        f (Failed _ e) = Just (show e)
+        f _            = Nothing
 
 fileContents :: FilePath -> Script LBS.ByteString
 fileContents p = do

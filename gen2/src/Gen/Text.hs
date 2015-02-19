@@ -12,14 +12,8 @@
 
 module Gen.Text where
 
-import           Control.Applicative
-import           Control.Lens
-import           Control.Monad
-import qualified Data.Attoparsec.Text  as Parse
 import           Data.Char
 import           Data.Foldable         as Fold
-import           Data.HashSet          (HashSet)
-import qualified Data.HashSet          as Set
 import           Data.Maybe
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
