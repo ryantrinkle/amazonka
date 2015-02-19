@@ -53,6 +53,13 @@ data Prefix a = Prefix
 
 makeLenses ''Prefix
 
+-- data Name a = Name
+--     { _nameKey  :: Text
+--     , _nameItem :: a
+--     } deriving (Eq, Show)
+
+-- makeLenses ''Name
+
 data Member = Member
     { _memOriginal :: Text
     , _memName     :: Text

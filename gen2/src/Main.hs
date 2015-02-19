@@ -18,38 +18,41 @@ module Main (main) where
 
 import           Control.Applicative
 import           Control.Error
-import           Control.Lens              hiding ((<.>), (</>), (??))
+import           Control.Lens                 hiding ((<.>), (</>), (??))
 import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.IO.Class
 import           Control.Monad.State
 import           Data.Either
-import qualified Data.Foldable             as Fold
-import qualified Data.HashMap.Strict       as Map
-import           Data.Jason                (eitherDecode)
-import           Data.List                 (nub, sortBy)
-import           Data.List.NonEmpty        (NonEmpty (..))
-import qualified Data.List.NonEmpty        as NonEmpty
+import qualified Data.Foldable                as Fold
+import qualified Data.HashMap.Strict          as Map
+import           Data.Jason                   (eitherDecode)
+import           Data.List                    (nub, sortBy)
+import           Data.List.NonEmpty           (NonEmpty (..))
+import qualified Data.List.NonEmpty           as NonEmpty
+import           Data.Maybe
 import           Data.Monoid
-import qualified Data.SemVer               as SemVer
+import qualified Data.SemVer                  as SemVer
 import           Data.String
-import qualified Data.Text                 as Text
-import qualified Data.Text.IO              as Text
-import qualified Data.Text.Lazy.Builder    as Build
-import qualified Data.Text.Lazy.IO         as LText
-import qualified Filesystem                as FS
-import           Filesystem.Path.CurrentOS hiding (encode)
+import qualified Data.Text                    as Text
+import qualified Data.Text.IO                 as Text
+import qualified Data.Text.Lazy.Builder       as Build
+import qualified Data.Text.Lazy.IO            as LText
+import qualified Filesystem                   as FS
+import           Filesystem.Path.CurrentOS    hiding (encode)
+import           Gen.AST                      as AST
 import           Gen.IO
-import qualified Gen.JSON                  as JSON
-import qualified Gen.Library               as Library
+import qualified Gen.JSON                     as JSON
+import qualified Gen.Library                  as Library
 import           Gen.Model
-import qualified Gen.Override              as Override
+import qualified Gen.Override                 as Override
 import           Gen.Types
+import           Language.Haskell.Exts.Pretty (prettyPrint)
 import           Options.Applicative
-import           Prelude                   hiding (FilePath)
+import           Prelude                      hiding (FilePath)
 import           System.Directory.Tree
-import           System.IO                 hiding (FilePath)
-import qualified Text.EDE                  as EDE
+import           System.IO                    hiding (FilePath)
+import qualified Text.EDE                     as EDE
 
 data Options = Options
     { _optOutput    :: FilePath
@@ -139,14 +142,19 @@ main = runScript $ do
 
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
-        d <- writeTree "Write Library" $ Library.tree (o ^. optOutput) t s
-        copyDirectory (o ^. optAssets) (Library.root d)
+
+        mapM_ (\p -> AST.pretty p >>= scriptIO . LText.putStrLn)
+            . mapMaybe (uncurry AST.transform)
+            $ Map.toList (s ^. svcShapes)
+
+        -- d <- writeTree "Write Library" $ Library.render (o ^. optOutput) t s
+        -- copyDirectory (o ^. optAssets) (Library.root d)
 
         say "Completed" (s ^. svcName)
 
     say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
-service :: FilePath -> FilePath -> Script (Service (Prefix Shape))
+service :: FilePath -> FilePath -> Script (Service (Prefix Shape) Ref)
 service d o = do
     say "Load Service" (encode d)
     v <- version d
