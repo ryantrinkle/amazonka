@@ -14,6 +14,7 @@ module Gen.Library where
 
 import           Control.Lens              ((^.))
 import           Data.Aeson.Encode.Pretty
+import qualified Data.HashMap.Strict       as Map
 import           Data.Monoid
 import qualified Data.Text.Lazy            as LText
 import           Filesystem.Path.CurrentOS hiding (encode)
@@ -59,7 +60,11 @@ tree d t s = encodeString d :/ dir lib
     types           = EDE.eitherRender (t ^. tmplTypes $ proto)   mempty
     waiters         = EDE.eitherRender (t ^. tmplWaiters)         mempty
 
-    operations      = []
+    operations      = map f . Map.toList $ s ^. svcOperations
+      where
+        f (k, v) = (fromText k <.> "hs", EDE.eitherRender tmpl mempty)
+
+    tmpl = t ^. tmplOperation $ proto
 
     proto  = s ^. metaProtocol
 
