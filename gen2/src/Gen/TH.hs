@@ -22,14 +22,10 @@ module Gen.TH
     , camel
     ) where
 
-import           Control.Applicative
-import           Control.Lens
 import           Data.Jason.TH
-import           Data.Text            (Text)
 import qualified Data.Text            as Text
 import           Data.Text.Manipulate
 import           Gen.Text
-import           Language.Haskell.TH
 
 upper, lower, spinal, camel :: Options
 upper  = defaults { constructorTagModifier = asText Text.toUpper }

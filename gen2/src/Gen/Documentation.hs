@@ -17,11 +17,8 @@ module Gen.Documentation
     ) where
 
 import           Control.Applicative
-import           Control.Lens
 import           Data.Default.Class
-import           Data.HashMap.Strict (HashMap)
 import           Data.Jason
-import           Data.Monoid
 import           Data.Text           (Text)
 import qualified Data.Text           as Text
 import           Text.Pandoc

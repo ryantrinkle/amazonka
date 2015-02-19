@@ -26,13 +26,10 @@ module Gen.Types where
 
 import           Control.Applicative
 import           Control.Lens
-import           Data.Attoparsec.Text      (Parser)
-import qualified Data.Attoparsec.Text      as Parse
 import           Data.Bifunctor
 import           Data.CaseInsensitive      (CI)
 import qualified Data.CaseInsensitive      as CI
 import           Data.Default.Class
-import           Data.Foldable             (Foldable)
 import           Data.Function             (on)
 import           Data.Hashable             (Hashable)
 import           Data.HashMap.Strict       (HashMap)
@@ -40,14 +37,10 @@ import qualified Data.HashMap.Strict       as Map
 import           Data.HashSet              (HashSet)
 import           Data.Jason.Types
 import           Data.Monoid
-import           Data.SemVer               (Version, fromText, toText)
-import           Data.String               (IsString)
+import           Data.SemVer               (Version, fromText)
 import           Data.Text                 (Text)
-import           Data.Traversable          (Traversable)
 import qualified Filesystem.Path.CurrentOS as Path
-import           Gen.TH
 import           GHC.Generics              (Generic)
-import           GHC.TypeLits
 import           Text.EDE                  (Template)
 
 encode :: Path.FilePath -> Text
