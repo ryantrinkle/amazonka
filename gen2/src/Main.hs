@@ -143,7 +143,7 @@ main = runScript $ do
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
 
-        mapM_ (\p -> AST.pretty p >>= scriptIO . LText.putStrLn)
+        mapM_ (\p -> AST.pretty p >>= scriptIO . LText.putStrLn . (<> "\n"))
             . mapMaybe (uncurry AST.transform)
             $ Map.toList (s ^. svcShapes)
 
