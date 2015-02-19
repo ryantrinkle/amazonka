@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE LambdaCase            #-}
@@ -23,6 +22,7 @@ module Gen.AST where
 import           Control.Arrow                ((***))
 import           Control.Lens                 hiding (transform)
 import           Control.Monad.Except
+import qualified Data.HashMap.Strict          as Map
 import           Data.Monoid
 import           Data.Text                    (Text)
 import qualified Data.Text                    as Text
@@ -38,24 +38,47 @@ import           Language.Haskell.Exts        hiding (name)
 import           Language.Haskell.Exts.Pretty
 import           Prelude                      hiding (Enum)
 
-newtype Uniq = Uniq { prefix :: Text -> String }
+data Uniq = Uniq
+    { field  :: Text -> Name
+    , branch :: Text -> Name
+    }
 
 unique :: Text -> Uniq
-unique k = Uniq (Text.unpack . mappend p . upperHead)
+unique k = Uniq (f ('_' `Text.cons` Text.toLower k)) (f (Text.toUpper k))
   where
-    !p = '_' `Text.cons` Text.toLower k
+    f x = Ident . Text.unpack . mappend x . upperHead
 
 -- TODO:
--- type class instances
+-- render type class instances
+
+-- Just focus on getting any shape passed rendered, the filtering, selecting,
+-- and massaging of type names should happen in the Override module on the
+-- shapes hashmap.
 
 transform :: Text -> Prefix Shape -> Maybe Decl
 transform (name -> n) (Prefix p s) =
     case s of
-        SStruct x -> Just $ record n (fields k (x ^. structMembers)) d
-        _         -> Nothing
+    SStruct x -> Just $ record  n (fields k (x ^. structMembers)) d
+    SEnum   x -> Just $ nullary n k (x ^. enumValues) d
+
+    -- SString x -> f x Render as newtype
+    -- SBlob   x -> f x
+    -- SBool   x -> f x
+    -- STime   x -> f x
+    -- SInt    x -> f x
+    -- SDouble x -> f x
+    -- SLong   x -> f x
+    _         -> Nothing
   where
     k = unique p
     d = derive [Ident "Eq", Ident "Show"]
+
+--nullary :: Name
+nullary n k cs = DataDecl l DataType [] n [] (f `map` Map.toList cs)
+  where
+    f (b, _) = QualConDecl l [] [] (ConDecl (branch k b) [])
+
+    l = location n
 
 record :: Name -> [([Name], Type)] -> [Deriving] -> Decl
 record n fs = DataDecl l s [] n [] [QualConDecl l [] [] (RecDecl n fs)]
@@ -69,7 +92,7 @@ fields :: Uniq -> OrdMap Member Ref -> [([Name], Type)]
 fields k = map (f *** g) . OrdMap.toList
   where
     f :: Member -> [Name]
-    f = (:[]) . Ident  . prefix k . _memName
+    f = (:[]) . field k . _memName
 
     g :: Ref -> Type
     g = TyCon . UnQual . Ident . Text.unpack . _refShape
