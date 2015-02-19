@@ -18,7 +18,7 @@ module Main (main) where
 
 import           Control.Applicative
 import           Control.Error
-import           Control.Lens              hiding ((<.>), (</>))
+import           Control.Lens              hiding ((<.>), (</>), (??))
 import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.IO.Class
@@ -27,7 +27,9 @@ import           Data.Either
 import qualified Data.Foldable             as Fold
 import qualified Data.HashMap.Strict       as Map
 import           Data.Jason                (eitherDecode)
-import           Data.List                 (sortBy)
+import           Data.List                 (nub, sortBy)
+import           Data.List.NonEmpty        (NonEmpty (..))
+import qualified Data.List.NonEmpty        as NonEmpty
 import           Data.Monoid
 import qualified Data.SemVer               as SemVer
 import           Data.String
@@ -138,18 +140,11 @@ main = runScript $ do
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
         d <- writeTree $ Library.tree (o ^. optOutput) t s
-
         copyDirectory (o ^. optAssets) (Library.root d)
 
         say "Completed" (s ^. svcName)
 
     say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
-
-version :: FilePath -> Script FilePath
-version d = do
-    fs <- sortBy (flip compare) <$> scriptIO (FS.listDirectory d)
-    f  <- tryHead ("Failed to get model version from " ++ show d) fs
-    return (basename f)
 
 service :: FilePath -> FilePath -> Script (Service (Prefix Shape))
 service d o = do
@@ -174,6 +169,21 @@ service d o = do
     decode = fileContents >=> hoistEither . eitherDecode
 
     msg = mappend ("Error in " ++ show d ++ ": ")
+
+version :: FilePath -> Script FilePath
+version d = do
+    fs <- scriptIO (FS.listDirectory d)
+    vs <- NonEmpty.nonEmpty (basename `map` sortBy (flip compare) fs)
+        ?? ("Failed to find versioned model in " ++ show d)
+    say "Using Version" (msg vs)
+    return (NonEmpty.head vs)
+  where
+    msg (v :| vs) = mconcat
+        [ encode (d </> v)
+        , " from ["
+        , Text.intercalate ", " . nub $ map encode vs
+        , "]"
+        ]
 
 templates :: FilePath -> Script (Templates Protocol)
 templates d = do
