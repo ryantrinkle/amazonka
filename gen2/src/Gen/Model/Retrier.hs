@@ -14,7 +14,7 @@
 module Gen.Model.Retrier where
 
 import           Control.Lens
-import           Data.Aeson          (FromJSON)
+
 import           Data.HashMap.Strict (HashMap)
 import           Data.Scientific     (Scientific)
 import           Data.Text           (Text)

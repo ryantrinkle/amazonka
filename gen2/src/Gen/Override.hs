@@ -111,7 +111,7 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
             . map (CI.mk . _memName)
             . OrdMap.keys
             $ x ^. structMembers
-        SEnum   x -> next n _2 (heuristics n)
+        SEnum   x -> next n _2 (mempty : heuristics n)
             . Set.fromList
             . map CI.mk
             . Map.keys

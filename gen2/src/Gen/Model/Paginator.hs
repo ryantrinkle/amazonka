@@ -15,7 +15,7 @@ module Gen.Model.Paginator where
 
 import           Control.Applicative
 import           Control.Lens
-import           Data.Aeson          (FromJSON)
+
 import           Data.Text           (Text)
 
 data Key
