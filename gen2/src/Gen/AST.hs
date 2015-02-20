@@ -22,6 +22,7 @@ module Gen.AST where
 import           Control.Arrow                ((***))
 import           Control.Lens                 hiding (transform)
 import           Control.Monad.Except
+import           Data.HashMap.Strict          (HashMap)
 import qualified Data.HashMap.Strict          as Map
 import           Data.Monoid
 import           Data.Text                    (Text)
@@ -59,8 +60,8 @@ unique k = Uniq (f ('_' `Text.cons` Text.toLower k)) (f (Text.toUpper k))
 transform :: Text -> Prefix Shape -> Maybe Decl
 transform (name -> n) (Prefix p s) =
     case s of
-    SStruct x -> Just $ record  n (fields k (x ^. structMembers)) d
-    SEnum   x -> Just $ nullary n k (x ^. enumValues) d
+    SStruct x -> Just $ recDecl n k (x ^. structMembers) d
+    SEnum   x -> Just $ sumDecl n k (x ^. enumValues) d
 
     -- SString x -> f x Render as newtype
     -- SBlob   x -> f x
@@ -74,20 +75,34 @@ transform (name -> n) (Prefix p s) =
     k = unique p
     d = derive [Ident "Eq", Ident "Show"]
 
---nullary :: Name
-nullary n k cs = DataDecl l DataType [] n [] (f `map` Map.toList cs)
-  where
-    f (b, _) = QualConDecl l [] [] (ConDecl (branch k b) [])
+sumDecl :: Name -> Uniq -> HashMap Text Text -> [Deriving] -> Decl
+sumDecl n k vs = dataDecl n (sumCtor k `map` Map.keys vs)
 
-    l = location n
+recDecl :: Name -> Uniq -> OrdMap Member Ref -> [Deriving] -> Decl
+recDecl n k ms = dataDecl n [recCtor n (fields k ms)]
 
-record :: Name -> [([Name], Type)] -> [Deriving] -> Decl
-record n fs = DataDecl l s [] n [] [QualConDecl l [] [] (RecDecl n fs)]
-  where
-    s | [_] <- fs = NewType
-      | otherwise = DataType
+dataDecl :: Name -> [QualConDecl] -> [Deriving] -> Decl
+dataDecl n cs = DataDecl empty (dataOrNew cs) [] n [] cs
 
-    l = location n
+sumCtor :: Uniq -> Text -> QualConDecl
+sumCtor k b = ctor (ConDecl (branch k b) [])
+
+recCtor :: Name -> [([Name], Type)] -> QualConDecl
+recCtor n = ctor . RecDecl n
+
+ctor :: ConDecl -> QualConDecl
+ctor = QualConDecl empty [] []
+
+tyCon :: Text -> Type
+tyCon = TyCon . UnQual . name
+
+empty :: SrcLoc
+empty = SrcLoc "empty" 0 0
+
+dataOrNew :: [QualConDecl] -> DataOrNew
+dataOrNew = \case
+    [QualConDecl _ _ _ (RecDecl _ [_])] -> NewType
+    _                                   -> DataType
 
 fields :: Uniq -> OrdMap Member Ref -> [([Name], Type)]
 fields k = map (f *** g) . OrdMap.toList
@@ -104,15 +119,15 @@ derive = map ((,[]) . UnQual)
 name :: Text -> Name
 name = Ident . Text.unpack
 
-location :: Name -> SrcLoc
-location = \case
+srcLoc :: Name -> SrcLoc
+srcLoc = \case
     Ident  n -> SrcLoc n 0 0
     Symbol n -> SrcLoc n 0 0
 
 pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
 pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
   where
-    hoist (Left  e) = throwError (e ++ ": ->" ++ x)
+    hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
     hoist (Right o) = return (Build.toLazyText o)
 
     x = prettyPrintStyleMode style' mode' d
