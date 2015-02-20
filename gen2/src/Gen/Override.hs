@@ -28,6 +28,7 @@ import           Data.Bifunctor
 import           Data.CaseInsensitive       (CI)
 import qualified Data.CaseInsensitive       as CI
 import           Data.Default.Class
+import qualified Data.Foldable              as Fold
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as Map
 import           Data.HashSet               (HashSet)
@@ -38,6 +39,7 @@ import           Data.Text                  (Text)
 import qualified Data.Text                  as Text
 import           Data.Text.Manipulate
 import           Data.Traversable           (traverse)
+import qualified Gen.AST                    as AST
 import           Gen.Model                  hiding (Name, State)
 import qualified Gen.OrdMap                 as OrdMap
 import           Gen.Text                   (safeHead)
@@ -50,13 +52,39 @@ type PS = HashMap (CI Text) (HashSet (CI Text))
 
 -- Leave the request/response types in the Types module, use the Refs as intended
 
+
+-- * Correct usage of Refs to primitive types (String -> Text) etc.
+-- * Remove corrected types from the Shapes map.
+
 service :: (Functor m, MonadError String m)
-        => Service Shape Ref
-        -> m (Service (Prefix Shape) Ref)
+        => Service (Shape Text) (Ref Text)
+        -> m (Service (Prefix (Shape Type)) (Ref Text))
 service s = do
-    x <- prefix $ override (s ^. svcOverride . ovOverrides) (s ^. svcShapes)
+    x <- prefix . primitives $
+        override (s ^. svcOverride . ovOverrides) (s ^. svcShapes)
     return $! s & svcShapes .~ x
 
+-- Would create a Text->Type index be useful? This could be turned into an actual
+-- AST.Type later
+
+-- primitives :: HashMap Text Shape -> HashMap Text Shape
+primitives = uncurry (Map.foldlWithKey' go) . join (,)
+  where
+--    go :: HashMap Text Shape -> Text -> Shape -> HashMap Text Shape
+    go acc n s = Map.insert n (s & references %~ ref) acc
+      where
+        -- use state instead of fold with the actual state being the result.
+
+  --      ref :: Ref -> m Ref
+        ref r = do
+            -- 1.  lookup the actual shape in the _original_ map, since the
+            --     state might not contain the shape.
+            -- 1a. error if the shape does not exist.
+            -- 1b. apply 'subst' which returns (Either Type Type),
+            --     if, then delete from the state.
+
+            -- 2.  return the updated reference.
+            undefined
 
 -- -- | Determine sharing of request and response types, and transform the respective
 -- -- refs into a whole shape.

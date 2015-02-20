@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE ViewPatterns          #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -19,25 +18,24 @@
 
 module Gen.AST where
 
-import           Control.Arrow                ((***))
-import           Control.Lens                 hiding (transform)
+import           Control.Arrow          ((***))
+import           Control.Lens           hiding (transform)
 import           Control.Monad.Except
-import           Data.HashMap.Strict          (HashMap)
-import qualified Data.HashMap.Strict          as Map
+import           Data.HashMap.Strict    (HashMap)
+import qualified Data.HashMap.Strict    as Map
 import           Data.Monoid
-import           Data.Text                    (Text)
-import qualified Data.Text                    as Text
-import qualified Data.Text.Lazy               as LText
-import qualified Data.Text.Lazy.Builder       as Build
+import           Data.Text              (Text)
+import qualified Data.Text              as Text
+import qualified Data.Text.Lazy         as LText
+import qualified Data.Text.Lazy.Builder as Build
 import           Data.Text.Manipulate
-import           Gen.Model                    hiding (Name)
-import           Gen.OrdMap                   (OrdMap)
-import qualified Gen.OrdMap                   as OrdMap
+import           Gen.Model              hiding (Name)
+import           Gen.OrdMap             (OrdMap)
+import qualified Gen.OrdMap             as OrdMap
 import           Gen.Types
 import qualified HIndent
-import           Language.Haskell.Exts        hiding (name)
-import           Language.Haskell.Exts.Pretty
-import           Prelude                      hiding (Enum)
+import           Language.Haskell.Exts  hiding (name)
+import           Prelude                hiding (Enum)
 
 data Uniq = Uniq
     { field  :: Text -> Name
@@ -49,6 +47,11 @@ unique k = Uniq (f ('_' `Text.cons` Text.toLower k)) (f (Text.toUpper k))
   where
     f x = Ident . Text.unpack . mappend x . upperHead
 
+data TypeOf
+    = TCore Type
+    | TLib  Type
+      deriving (Eq, Show)
+
 -- TODO:
 -- render type class instances
 -- render lenses per field
@@ -57,22 +60,52 @@ unique k = Uniq (f ('_' `Text.cons` Text.toLower k)) (f (Text.toUpper k))
 -- and massaging of type names should happen in the Override module on the
 -- shapes hashmap.
 
-transform :: Text -> Prefix Shape -> Maybe Decl
-transform (name -> n) (Prefix p s) =
-    case s of
-    SStruct x -> Just $ recDecl n k (x ^. structMembers) d
-    SEnum   x -> Just $ sumDecl n k (x ^. enumValues) d
+-- Left: signifies a Haskell primitive, Right: a preserved library type.
+typeOf :: Text -> Shape -> TypeOf
+typeOf n = \case
+    SStruct x -> TLib  (tyCon n)
+    SList   x -> TCore (list x)
+    SMap    x -> TCore (hmap x)
+    SBlob   x -> TCore (stream x)
+    SBool   x -> TCore (tyCon "Bool")
+    -- FIXME: This is dependent on the service.
+    STime   x -> TCore (time x)
+    SDouble _ -> TCore (tyCon "Double")
+    SInt    x -> TCore (natural x "Int")
+    SLong   _ -> TCore (natural x "Integer")
+  where
+    list = undefined -- (List e a) || (List1 e a)
 
-    -- SString x -> f x Render as newtype
+    hmap = undefined -- (Map k v) || (EMap e i j k v)
+
+    stream = undefined -- figure out streaming or not
+
+    time = tyCon
+         . Text.pack
+         . show
+         . fromMaybe RFC822
+         . view timeTimestampFormat
+
+    natural x
+        | x ^. numMin > Just 0 = const (tyCon "Natural")
+        | otherwise            = tyCon
+
+transform :: Text -> Prefix Shape -> Maybe Decl
+transform t (Prefix p s) =
+    case s of
+        SStruct x -> Just $ recDecl n k (x ^. structMembers) d
+        SEnum   x -> Just $ sumDecl n k (x ^. enumValues) d
+--        SString x -> Just $ recDecl n k (OrdMap.fromList [(Member t t, refer "Text")]) d
     -- SBlob   x -> f x
     -- SBool   x -> f x
     -- STime   x -> f x
     -- SInt    x -> f x
     -- SDouble x -> f x
     -- SLong   x -> f x
-    _         -> Nothing
+        _         -> Nothing
   where
     k = unique p
+    n = name t
     d = derive [Ident "Eq", Ident "Show"]
 
 sumDecl :: Name -> Uniq -> HashMap Text Text -> [Deriving] -> Decl

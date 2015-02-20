@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TupleSections              #-}
+{-# LANGUAGE ViewPatterns               #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans       #-}
 
@@ -38,6 +39,7 @@ import           Data.HashSet              (HashSet)
 import           Data.Jason.Types
 import           Data.Monoid
 import           Data.SemVer               (Version, fromText)
+import           Data.String
 import           Data.Text                 (Text)
 import qualified Filesystem.Path.CurrentOS as Path
 import           GHC.Generics              (Generic)
@@ -69,6 +71,9 @@ instance Eq Member where
     (==) = on (==) _memName
 
 instance Hashable Member
+
+instance IsString Member where
+    fromString (fromString -> t) = Member t t
 
 makeLenses ''Member
 
