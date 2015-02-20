@@ -50,6 +50,7 @@ unique k = Uniq (f ('_' `Text.cons` Text.toLower k)) (f (Text.toUpper k))
 
 -- TODO:
 -- render type class instances
+-- render lenses per field
 
 -- Just focus on getting any shape passed rendered, the filtering, selecting,
 -- and massaging of type names should happen in the Override module on the
@@ -109,8 +110,7 @@ location = \case
     Symbol n -> SrcLoc n 0 0
 
 pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
-pretty d = -- hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
-    return (LText.pack x)
+pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
   where
     hoist (Left  e) = throwError (e ++ ": ->" ++ x)
     hoist (Right o) = return (Build.toLazyText o)

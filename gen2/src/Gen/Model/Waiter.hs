@@ -12,9 +12,9 @@
 
 module Gen.Model.Waiter where
 
-import           Control.Lens
-import           Data.Aeson   (FromJSON)
-import           Data.Text    (Text)
+
+
+import           Data.Text (Text)
 
 data Match
     = MatchPath
