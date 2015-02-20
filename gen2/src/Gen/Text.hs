@@ -43,17 +43,13 @@ stripSuffix :: Text -> Text -> Text
 stripSuffix p t = Text.strip . fromMaybe t $ p `Text.stripSuffix` t
 
 constructor :: Text -> Text
-constructor t = acronym . rejoin . map recase $ splitWords t
+constructor = stripSuffix "_" . acronym . Text.concat . map recase . splitWords
   where
-    rejoin
-        | Text.any (not . isAlphaNum) t = Text.intercalate "_"
-        | otherwise                     = Text.concat
-
     recase x
         | Text.null x           = x
-        | isDigit (Text.last x) = Text.toUpper x
-        | isDigit (Text.head x) = upper
-        | otherwise             = x
+        | isDigit (Text.last x) = Text.toUpper x `Text.snoc` '_'
+        | isDigit (Text.head x) = upper `Text.snoc` '_'
+        | otherwise             = upperHead x
       where
         upper = case Text.uncons x of
             Nothing      -> x
