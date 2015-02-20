@@ -116,7 +116,7 @@ deriveFromJSON camel ''XMLNS
 
 -- | A reference to a 'Shape', plus any additional annotations
 -- specific to the point at which the type is de/serialised.
-data Ref = Ref
+data Ref a = Ref
     { _refShape         :: !Text
     , _refDocumentation :: Maybe Doc
     , _refLocation      :: Maybe Location
@@ -131,7 +131,7 @@ data Ref = Ref
 
 makeLenses ''Ref
 
-instance FromJSON Ref where
+instance FromJSON (Ref Text) where
     parseJSON = withObject "ref" $ \o -> Ref
         <$> o .:  "shape"
         <*> o .:? "documentation"
@@ -144,35 +144,53 @@ instance FromJSON Ref where
         <*> o .:? "exception" .!= False
         <*> o .:? "fault"     .!= False
 
-data List = List
+data List a = List
     { _listDocumentation :: Maybe Doc
-    , _listMember        :: Ref
+    , _listMember        :: Ref a
     , _listMin           :: Maybe Int
     , _listMax           :: Maybe Int
     , _listFlattened     :: Maybe Bool
     , _listLocationName  :: Maybe Text
     } deriving (Eq, Show)
 
-data Map = Map
+instance FromJSON (List Text) where
+    parseJSON = withObject "list" $ \o -> List
+        <$> o .:? "documentation"
+        <*> o .:  "member"
+        <*> o .:? "min"
+        <*> o .:? "max"
+        <*> o .:? "flattened"
+        <*> o .:? "locationName"
+
+data Map a = Map
     { _mapDocumentation :: Maybe Doc
-    , _mapKey           :: Ref
-    , _mapValue         :: Ref
+    , _mapKey           :: Ref a
+    , _mapValue         :: Ref a
     , _mapMin           :: Maybe Int
     , _mapMax           :: Maybe Int
     , _mapFlattened     :: Maybe Bool
     } deriving (Eq, Show)
 
-data Struct = Struct
+instance FromJSON (Map Text) where
+    parseJSON = withObject "map" $ \o -> Map
+        <$> o .:? "documentation"
+        <*> o .:  "key"
+        <*> o .:  "value"
+        <*> o .:? "min"
+        <*> o .:? "max"
+        <*> o .:? "flattened"
+
+data Struct a = Struct
     { _structDocumentation :: Maybe Doc
     , _structRequired      :: HashSet (CI Text)
     , _structPayload       :: Maybe Text
     , _structXmlNamespace  :: Maybe XMLNS
     , _structException     :: Maybe Bool
     , _structFault         :: Maybe Bool
-    , _structMembers       :: OrdMap Member Ref
+    , _structMembers       :: OrdMap Member (Ref a)
     } deriving (Eq, Show)
 
-instance FromJSON Struct where
+instance FromJSON (Struct Text) where
     parseJSON = withObject "structure" $ \o -> Struct
         <$> o .:? "documentation"
         <*> o .:? "required" .!= mempty
@@ -231,8 +249,6 @@ data Number a = Number
     , _numBox           :: Maybe Bool
     } deriving (Eq, Show)
 
-deriveFromJSON defaults ''List
-deriveFromJSON defaults ''Map
 deriveFromJSON defaults ''Chars
 deriveFromJSON defaults ''Blob
 deriveFromJSON defaults ''Boolean
@@ -250,10 +266,10 @@ makeLenses ''Time
 makeLenses ''Number
 
 -- | The sum of all possible types.
-data Shape
-    = SList   List
-    | SMap    Map
-    | SStruct Struct
+data Shape a
+    = SList   (List   a)
+    | SMap    (Map    a)
+    | SStruct (Struct a)
     | SString Chars
     | SEnum   Enum
     | SBlob   Blob
@@ -266,7 +282,7 @@ data Shape
 
 makePrisms ''Shape
 
-instance FromJSON Shape where
+instance FromJSON (Shape Text) where
     parseJSON = withObject "shape" $ \o -> do
         let f g = g <$> parseJSON (Object o)
         o .: "type" >>= \case
@@ -283,7 +299,7 @@ instance FromJSON Shape where
             "long"      -> f SLong
             e           -> fail ("Unknown Shape type: " ++ Text.unpack e)
 
-references  :: Traversal' Shape Ref
+references  :: Traversal' (Shape a) (Ref a)
 references f = \case
     SList   s -> (\m -> SList (s & listMember .~ m))
         <$> f (_listMember s)
@@ -310,12 +326,12 @@ data Operation a = Operation
     , _operHttp             :: !HTTP
     , _operInput            :: Maybe a
     , _operOutput           :: Maybe a
-    , _operErrors           :: [Ref]
+    , _operErrors           :: [a]
     } deriving (Eq, Show)
 
 makeLenses ''Operation
 
-instance FromJSON (Operation Ref) where
+instance FromJSON (Operation (Ref Text)) where
     parseJSON = withObject "operation" $ \o -> Operation
         <$> o .:  "name"
         <*> o .:? "documentation"
@@ -381,7 +397,7 @@ svcName, svcAbbrev :: Getter (Service a b) Text
 svcName   = metaServiceFullName     . to nameToText
 svcAbbrev = metaServiceAbbreviation . to abbrevToText
 
-instance FromJSON (Service Shape Ref) where
+instance FromJSON (Service (Shape Text) (Ref Text)) where
     parseJSON = withObject "service" $ \o -> Service
         <$> o .:  "metadata"
         <*> o .:  "library"
