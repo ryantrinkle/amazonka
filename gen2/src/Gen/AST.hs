@@ -23,6 +23,7 @@ import           Control.Lens           hiding (transform)
 import           Control.Monad.Except
 import           Data.HashMap.Strict    (HashMap)
 import qualified Data.HashMap.Strict    as Map
+import           Data.Maybe
 import           Data.Monoid
 import           Data.Text              (Text)
 import qualified Data.Text              as Text
@@ -47,11 +48,6 @@ unique k = Uniq (f ('_' `Text.cons` Text.toLower k)) (f (Text.toUpper k))
   where
     f x = Ident . Text.unpack . mappend x . upperHead
 
-data TypeOf
-    = TCore Type
-    | TLib  Type
-      deriving (Eq, Show)
-
 -- TODO:
 -- render type class instances
 -- render lenses per field
@@ -60,58 +56,28 @@ data TypeOf
 -- and massaging of type names should happen in the Override module on the
 -- shapes hashmap.
 
--- Left: signifies a Haskell primitive, Right: a preserved library type.
-typeOf :: Text -> Shape -> TypeOf
-typeOf n = \case
-    SStruct x -> TLib  (tyCon n)
-    SList   x -> TCore (list x)
-    SMap    x -> TCore (hmap x)
-    SBlob   x -> TCore (stream x)
-    SBool   x -> TCore (tyCon "Bool")
-    -- FIXME: This is dependent on the service.
-    STime   x -> TCore (time x)
-    SDouble _ -> TCore (tyCon "Double")
-    SInt    x -> TCore (natural x "Int")
-    SLong   _ -> TCore (natural x "Integer")
-  where
-    list = undefined -- (List e a) || (List1 e a)
-
-    hmap = undefined -- (Map k v) || (EMap e i j k v)
-
-    stream = undefined -- figure out streaming or not
-
-    time = tyCon
-         . Text.pack
-         . show
-         . fromMaybe RFC822
-         . view timeTimestampFormat
-
-    natural x
-        | x ^. numMin > Just 0 = const (tyCon "Natural")
-        | otherwise            = tyCon
-
-transform :: Text -> Prefix Shape -> Maybe Decl
-transform t (Prefix p s) =
-    case s of
-        SStruct x -> Just $ recDecl n k (x ^. structMembers) d
-        SEnum   x -> Just $ sumDecl n k (x ^. enumValues) d
---        SString x -> Just $ recDecl n k (OrdMap.fromList [(Member t t, refer "Text")]) d
-    -- SBlob   x -> f x
-    -- SBool   x -> f x
-    -- STime   x -> f x
-    -- SInt    x -> f x
-    -- SDouble x -> f x
-    -- SLong   x -> f x
-        _         -> Nothing
-  where
-    k = unique p
-    n = name t
-    d = derive [Ident "Eq", Ident "Show"]
+-- transform :: Text -> Prefix Shape -> Maybe Decl
+-- transform t (Prefix p s) =
+--     case s of
+--         SStruct x -> Just $ recDecl n k (x ^. structMembers) d
+--         SEnum   x -> Just $ sumDecl n k (x ^. enumValues) d
+-- --        SString x -> Just $ recDecl n k (OrdMap.fromList [(Member t t, refer "Text")]) d
+--     -- SBlob   x -> f x
+--     -- SBool   x -> f x
+--     -- STime   x -> f x
+--     -- SInt    x -> f x
+--     -- SDouble x -> f x
+--     -- SLong   x -> f x
+--         _         -> Nothing
+--   where
+--     k = unique p
+--     n = name t
+--     d = derive [Ident "Eq", Ident "Show"]
 
 sumDecl :: Name -> Uniq -> HashMap Text Text -> [Deriving] -> Decl
 sumDecl n k vs = dataDecl n (sumCtor k `map` Map.keys vs)
 
-recDecl :: Name -> Uniq -> OrdMap Member Ref -> [Deriving] -> Decl
+recDecl :: Name -> Uniq -> OrdMap Member (Ref Type) -> [Deriving] -> Decl
 recDecl n k ms = dataDecl n [recCtor n (fields k ms)]
 
 dataDecl :: Name -> [QualConDecl] -> [Deriving] -> Decl
@@ -137,14 +103,8 @@ dataOrNew = \case
     [QualConDecl _ _ _ (RecDecl _ [_])] -> NewType
     _                                   -> DataType
 
-fields :: Uniq -> OrdMap Member Ref -> [([Name], Type)]
-fields k = map (f *** g) . OrdMap.toList
-  where
-    f :: Member -> [Name]
-    f = (:[]) . field k . _memName
-
-    g :: Ref -> Type
-    g = TyCon . UnQual . Ident . Text.unpack . _refShape
+fields :: Uniq -> OrdMap Member (Ref Type) -> [([Name], Type)]
+fields k = map (((:[]) . field k . _memName) *** _refShape) . OrdMap.toList
 
 derive :: [Name] -> [Deriving]
 derive = map ((,[]) . UnQual)
