@@ -117,7 +117,7 @@ deriveFromJSON camel ''XMLNS
 -- | A reference to a 'Shape', plus any additional annotations
 -- specific to the point at which the type is de/serialised.
 data Ref a = Ref
-    { _refShape         :: !Text
+    { _refShape         :: !a
     , _refDocumentation :: Maybe Doc
     , _refLocation      :: Maybe Location
     , _refLocationName  :: Maybe Text
@@ -299,15 +299,23 @@ instance FromJSON (Shape Text) where
             "long"      -> f SLong
             e           -> fail ("Unknown Shape type: " ++ Text.unpack e)
 
-references  :: Traversal' (Shape a) (Ref a)
+references :: Traversal (Shape a) (Shape b) (Ref a) (Ref b)
 references f = \case
-    SList   s -> (\m -> SList (s & listMember .~ m))
-        <$> f (_listMember s)
-    SMap    s -> (\k v -> SMap (s & mapKey .~ k & mapValue .~ v))
-        <$> f (_mapKey s) <*> f (_mapValue s)
-    SStruct s -> (\ms -> SStruct (s & structMembers .~ ms))
-        <$> traverse f (_structMembers s)
-    s         -> pure s
+    SList   x -> list   x <$> f (_listMember x)
+    SMap    x -> hmap   x <$> f (_mapKey x) <*> f (_mapValue x)
+    SStruct x -> struct x <$> traverse f (_structMembers x)
+    SString x -> pure (SString x)
+    SEnum   x -> pure (SEnum   x)
+    SBlob   x -> pure (SBlob   x)
+    SBool   x -> pure (SBool   x)
+    STime   x -> pure (STime   x)
+    SInt    x -> pure (SInt    x)
+    SDouble x -> pure (SDouble x)
+    SLong   x -> pure (SLong   x)
+  where
+    list   x m   = SList   $ x { _listMember = m }
+    hmap   x k v = SMap    $ x { _mapKey = k, _mapValue = v}
+    struct x ms  = SStruct $ x { _structMembers = ms }
 
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP

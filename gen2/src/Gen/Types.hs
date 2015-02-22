@@ -48,12 +48,12 @@ import           Text.EDE                  (Template)
 encode :: Path.FilePath -> Text
 encode = either id id . Path.toText
 
-data Prefix a = Prefix
-    { _prefKey  :: Text
-    , _prefItem :: a
+data Pre a = Pre
+    { _preKey  :: Text
+    , _preItem :: a
     } deriving (Eq, Show)
 
-makeLenses ''Prefix
+makeLenses ''Pre
 
 -- data Name a = Name
 --     { _nameKey  :: Text
