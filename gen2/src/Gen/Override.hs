@@ -26,85 +26,78 @@ import           Control.Lens
 import           Control.Monad.Except
 import           Control.Monad.State.Strict
 import           Data.Bifunctor
-import           Data.CaseInsensitive         (CI)
-import qualified Data.CaseInsensitive         as CI
+import           Data.CaseInsensitive       (CI)
+import qualified Data.CaseInsensitive       as CI
 import           Data.Default.Class
-import           Data.HashMap.Strict          (HashMap)
-import qualified Data.HashMap.Strict          as Map
-import           Data.HashSet                 (HashSet)
-import qualified Data.HashSet                 as Set
-import           Data.List                    (intercalate)
+import           Data.HashMap.Strict        (HashMap)
+import qualified Data.HashMap.Strict        as Map
+import           Data.HashSet               (HashSet)
+import qualified Data.HashSet               as Set
+import           Data.List                  (intercalate)
 import           Data.Monoid
-import           Data.Text                    (Text)
-import qualified Data.Text                    as Text
+import           Data.Text                  (Text)
+import qualified Data.Text                  as Text
 import           Data.Text.Manipulate
-import qualified Gen.AST                      as AST
-import           Gen.Model                    hiding (Name, State)
-import           Gen.OrdMap                   (OrdMap)
-import qualified Gen.OrdMap                   as OrdMap
-import           Gen.Text                     (safeHead)
-import           Gen.Types                    hiding (override)
-import           Language.Haskell.Exts.Syntax (Type)
+import qualified Gen.AST                    as AST
+import           Gen.Model                  hiding (Name, State)
+import           Gen.OrdMap                 (OrdMap)
+import qualified Gen.OrdMap                 as OrdMap
+import           Gen.Text                   (safeHead)
+import           Gen.Types                  hiding (override)
+import           Language.Haskell.Exts      (Type, prettyPrint)
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 
 -- FIXME: Need to deal with shared request/response types, do the renaming of
 -- said input/outputs, and remove them from the shapes list if necessary.
 
-service :: (Functor m, MonadError String m)
-        => Service (Untyped Shape) a
-        -> m (Service (Typed Shape) a)
+-- service :: (Functor m, MonadError String m)
+--         => Service (Untyped Shape) a
+--         -> m (Service (Typed Shape) a)
 service s = do
     let rs = s ^. ovOverrides
         ss = s ^. svcShapes
-        oo = s ^. svcOperations
     ts <- solve (override rs ss) >>= prefix
-    -- to <- subst ts oo
-    return $! s
-       & svcShapes     .~ ts
---       & svcOperations .~ to
+    return $! s & svcShapes .~ ts
 
 -- | Replace operation input/output references with their respective shapes,
 -- removing the shape from the service if they are not shared.
 -- subst :: (Functor m, MonadError String m)
---       => TextMap (Untyped Shape)
---       -> TextMap (Operation (Ref Text))
---      -> m (TextMap (Typed Shape), TextMap (Operation (Typed Shape)))
-
-
-
-
--- | Determine the usage of operation input/output shapes.
---
--- A shape is considered 'shared' if it is used as a field of another shapes,
--- as opposed to only being referenced by the operation itself.
---
--- Returns a set of shapes that are _not_ shared.
-sharing :: Service (Untyped Shape) (Ref Text)
-        -> HashSet Text
-sharing s = occur (execState go mempty)
+      -- => TextMap (Operation (Ref Text))
+      -- -> TextMap (Untyped Shape)
+      -- -> m (TextMap (Typed Shape), TextMap (Operation (Typed Shape)))
+--subst :: Service (Typed Shape) (Ref Text)
+--      -> Service (Typed Shape) (Ref Text)
+subst s = shared
   where
     ss = s ^. svcShapes
     oo = s ^. svcOperations
 
-    -- FIXME: Need to correctly count a shape being used as a ref as shared.
-    occur :: TextMap Int -> HashSet Text
-    occur = Set.fromList . Map.keys . Map.filter (== 1)
+    -- | Determine the usage of operation input/output shapes.
+    --
+    -- A shape is considered 'shared' if it is used as a field of another shape,
+    -- as opposed to only being referenced by the operation itself.
+    --
+    -- Returns a set of shapes that are _not_ shared.
+    shared = occur (execState check mempty)
+      where
+        -- FIXME: Need to correctly count a shape being used as a ref as shared.
+        occur :: TextMap Int -> TextSet
+        occur = Set.fromList . Map.keys . Map.filter (> 1)
 
-    go :: State (TextMap Int) ()
-    go = forM_ (Map.elems oo) $ \o -> do
-        ref (o ^. operInput  . _Just . refShape)
-        ref (o ^. operOutput . _Just . refShape)
+        check :: State (TextMap Int) ()
+        check = forM_ (Map.elems oo) $ \o -> do
+            ref (o ^. operInput  . _Just . refShape)
+            ref (o ^. operOutput . _Just . refShape)
 
-    ref :: Text -> State (TextMap Int) ()
-    ref n = count n >> maybe (pure ()) shape (Map.lookup n ss)
+        ref :: Text -> State (TextMap Int) ()
+        ref n = count (AST.tyCon n) >> maybe (pure ()) shape (Map.lookup n ss)
 
-    shape :: Untyped Shape -> State (TextMap Int) ()
-    shape = mapM_ (count . view refShape) . toListOf references
+        shape :: Typed Shape -> State (TextMap Int) ()
+        shape = mapM_ (count . view refShape) . toListOf references
 
-    count :: Text -> State (TextMap Int) ()
-    count n = modify (Map.insertWith (+) n 1)
-
+        count :: Type -> State (TextMap Int) ()
+        count (Text.pack . prettyPrint -> n) = modify (Map.insertWith (+) n 1)
 
 -- | Apply the override rulset to shapes and their respective fields.
 override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
@@ -192,11 +185,11 @@ solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
             Just t  -> return t
             Nothing ->
                 case Map.lookup n ss of
-                    Just (typeOf n -> t) -> modify (Map.insert n t) >> return t
-                    Nothing              -> throwError $ "Missing Shape " ++ show n
+                    Just (typ n -> t) -> modify (Map.insert n t) >> return t
+                    Nothing           -> throwError $ "Missing Shape " ++ show n
 
-    typeOf :: Text -> Untyped Shape -> Type
-    typeOf n = \case
+    typ :: Text -> Untyped Shape -> Type
+    typ n = \case
         SStruct _ -> AST.tyCon n
         SList   x -> list x
         SMap    x -> hmap x
@@ -209,11 +202,11 @@ solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
         SInt    x -> natural x "Int"
         SLong   x -> natural x "Integer"
       where
-        list = error "typeOf.list" -- (List e a) || (List1 e a)
+        list = const (AST.tyCon "List") -- (List e a) || (List1 e a)
 
-        hmap = error "typeOf.hamp" -- (Map k v) || (EMap e i j k v)
+        hmap = const (AST.tyCon "Map") -- (Map k v) || (EMap e i j k v)
 
-        stream = error "typeOf.stream" -- figure out streaming or not
+        stream = const (AST.tyCon "Stream") -- figure out streaming or not
 
         time = AST.tyCon
              . Text.pack
