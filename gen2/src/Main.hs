@@ -143,18 +143,20 @@ main = runScript $ do
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
 
-        mapM_ (\p -> AST.pretty p >>= scriptIO . LText.putStrLn . (<> "\n"))
-            . mapMaybe (uncurry AST.transform)
-            $ Map.toList (s ^. svcShapes)
+        scriptIO (print s)
+
+        -- mapM_ (\p -> AST.pretty p >>= scriptIO . LText.putStrLn . (<> "\n"))
+        --     . mapMaybe (uncurry AST.transform)
+        --     $ Map.toList (s ^. svcShapes)
 
         -- d <- writeTree "Write Library" $ Library.render (o ^. optOutput) t s
         -- copyDirectory (o ^. optAssets) (Library.root d)
 
-        say "Completed" (s ^. svcName)
+--        say "Completed" (s ^. svcName)
 
     say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
-service :: FilePath -> FilePath -> Script (Service (Prefix Shape) Ref)
+service :: FilePath -> FilePath -> Script (Service (Typed Shape) (Untyped Ref))
 service d o = do
     say "Load Service" (encode d)
     v <- version d
@@ -165,7 +167,7 @@ service d o = do
         , JSON.def "waiters"    $ decode (waiters v)
         , JSON.def "pagination" $ decode (pagers  v)
         ]
-    either (throwError . msg) Override.service (JSON.parse y)
+    either (throwError . msg) (Override.service) (JSON.parse y)
   where
     normal  = path "normal.json"
     waiters = path "waiters.json"

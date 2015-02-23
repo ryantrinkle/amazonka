@@ -28,24 +28,31 @@ module Gen.Types where
 import           Control.Applicative
 import           Control.Lens
 import           Data.Bifunctor
-import           Data.CaseInsensitive      (CI)
-import qualified Data.CaseInsensitive      as CI
+import           Data.CaseInsensitive         (CI)
+import qualified Data.CaseInsensitive         as CI
 import           Data.Default.Class
-import           Data.Function             (on)
-import           Data.Hashable             (Hashable)
-import           Data.HashMap.Strict       (HashMap)
-import qualified Data.HashMap.Strict       as Map
-import           Data.HashSet              (HashSet)
+import           Data.Function                (on)
+import           Data.Hashable                (Hashable)
+import           Data.HashMap.Strict          (HashMap)
+import qualified Data.HashMap.Strict          as Map
+import           Data.HashSet                 (HashSet)
 import           Data.Jason.Types
 import           Data.Monoid
-import           Data.SemVer               (Version, fromText)
+import           Data.SemVer                  (Version, fromText)
 import           Data.String
-import           Data.Text                 (Text)
-import qualified Filesystem.Path.CurrentOS as Path
-import           Gen.OrdMap                (OrdMap)
-import qualified Gen.OrdMap                as OrdMap
-import           GHC.Generics              (Generic)
-import           Text.EDE                  (Template)
+import           Data.Text                    (Text)
+import qualified Filesystem.Path.CurrentOS    as Path
+import           Gen.OrdMap                   (OrdMap)
+import qualified Gen.OrdMap                   as OrdMap
+import           GHC.Generics                 (Generic)
+import           Language.Haskell.Exts.Syntax (Type)
+import           Text.EDE                     (Template)
+
+type Untyped (f :: * -> *) = f Text
+type Typed   (f :: * -> *) = f Type
+
+type TextMap = HashMap Text
+type TextSet = HashSet Text
 
 encode :: Path.FilePath -> Text
 encode = either id id . Path.toText
