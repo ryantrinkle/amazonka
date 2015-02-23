@@ -62,7 +62,7 @@ render d t s = encodeString d :/ dir lib
 
     operations      = map f . Map.toList $ s ^. svcOperations
       where
-        f (k, v) = (fromText k <.> "hs", EDE.eitherRender tmpl mempty)
+        f (k, _) = (fromText k <.> "hs", EDE.eitherRender tmpl mempty)
 
     tmpl = t ^. tmplOperation $ proto
 

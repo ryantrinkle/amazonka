@@ -25,7 +25,7 @@ import           Control.Monad
 import           Data.Bifunctor
 import           Data.CaseInsensitive (CI)
 import           Data.HashMap.Strict  (HashMap)
-import qualified Data.HashMap.Strict  as Map
+-- import qualified Data.HashMap.Strict  as Map
 import           Data.HashSet         (HashSet)
 import           Data.Jason
 import           Data.Monoid
@@ -198,9 +198,9 @@ instance FromJSON (Struct Text) where
         <*> o .:? "xmlNamespace"
         <*> o .:? "exception"
         <*> o .:? "fault"
-        <*> (keys <$> o .:? "members" .!= mempty)
+        <*> (omap <$> o .:? "members" .!= mempty)
       where
-        keys = OrdMap.mapWithKey (\k -> (Member k k,))
+        omap = OrdMap.fromList . map (first member)
 
 data Chars = Chars
     { _charsDocumentation :: Maybe Doc
@@ -215,16 +215,17 @@ data Chars = Chars
 data Enum = Enum
     { _enumDocumentation :: Maybe Doc
     , _enumLocationName  :: Maybe Text
-    , _enumValues        :: HashMap Text Text
+    , _enumValues        :: OrdMap Member Text
     } deriving (Eq, Show)
 
 instance FromJSON Enum where
     parseJSON = withObject "enum" $ \o -> Enum
         <$> o .:? "documentation"
         <*> o .:? "locationName"
-        <*> (hmap <$> o .: "enum")
+        <*> (omap <$> o .: "enum")
       where
-        hmap = Map.fromList . map (first constructor . join (,))
+        omap = OrdMap.fromList
+             . map (first (member . constructor) . join (,))
 
 data Blob = Blob
     { _blobDocumentation :: Maybe Doc

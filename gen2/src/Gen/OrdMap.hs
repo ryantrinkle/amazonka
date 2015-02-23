@@ -1,27 +1,23 @@
-{-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveFoldable             #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures             #-}
 {-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE ViewPatterns               #-}
 
 module Gen.OrdMap
     ( OrdMap
     , toList
     , fromList
-    , map
-    , mapWithKey
     , keys
+    , values
     ) where
 
 import           Control.Applicative
 import           Control.Lens
+import           Data.Bifunctor
 import           Data.Foldable       (Foldable)
 import           Data.Jason.Types
 import           Data.Monoid
@@ -39,14 +35,14 @@ instance FromJSON v => FromJSON (OrdMap Text v) where
     parseJSON = withObject "ordered_map" $ \(unObject -> o) ->
         OrdMap <$> traverse (\(k, v) -> (k,) <$> parseJSON v) o
 
+instance Bifunctor OrdMap where
+    bimap f g = OrdMap . fmap (bimap f g) . toList
+
 fromList :: [(k, v)] -> OrdMap k v
 fromList = OrdMap
 
-map :: (v -> v') -> OrdMap k v -> OrdMap k v'
-map f = mapWithKey (\k v -> (k, f v))
-
-mapWithKey :: (k -> v -> (k', v')) -> OrdMap k v -> OrdMap k' v'
-mapWithKey f = OrdMap . fmap (uncurry f) . toList
-
 keys :: OrdMap k v -> [k]
 keys = fmap fst . toList
+
+values :: OrdMap k v -> [v]
+values = fmap snd . toList
