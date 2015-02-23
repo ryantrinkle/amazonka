@@ -93,8 +93,8 @@ subst sh s =
         rq <- update n                 (o ^. operInput)
         rs <- update (n <> "Response") (o ^. operOutput)
         return $! o
-            & oInput  .~ rq
-            & oOutput .~ rs
+            & operInput  .~ rq
+            & operOutput .~ rs
 
     update :: MonadError String m
            => Text
@@ -124,9 +124,9 @@ subst sh s =
          -> Ref
          -> Typed Shape
          -> State (HashMap Text Data) (Maybe Ref)
-    copy n r s = do
-        modify (Map.insert n (dataRename n d))
-        return (Just (r & refShape .~ n))
+    copy n r s = undefined -- do
+        -- modify (Map.insert n (dataRename n d))
+        -- return (Just (r & refShape .~ n))
 
 -- | Apply the override rulset to shapes and their respective fields.
 override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
