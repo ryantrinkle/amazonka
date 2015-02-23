@@ -44,64 +44,53 @@ import           Gen.OrdMap                 (OrdMap)
 import qualified Gen.OrdMap                 as OrdMap
 import           Gen.Text                   (safeHead)
 import           Gen.Types                  hiding (override)
-import           Language.Haskell.Exts      (Type, prettyPrint)
+import           Language.Haskell.Exts      (Type)
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 
--- FIXME: Need to deal with shared request/response types, do the renaming of
--- said input/outputs, and remove them from the shapes list if necessary.
-
--- service :: (Functor m, MonadError String m)
---         => Service (Untyped Shape) a
---         -> m (Service (Typed Shape) a)
+service :: (Functor m, MonadError String m)
+        => Service (Untyped Shape) (Untyped Ref)
+        -> m (Service (Typed Shape) (Typed Shape))
 service s = do
-    let rs = s ^. ovOverrides
-        ss = s ^. svcShapes
-    ts <- solve (override rs ss) >>= prefix
-    return $! (shared s, s & svcShapes .~ ts)
+    -- 1. Override rules are applied to the raw AST.
+    let os = override (s ^. ovOverrides) (s ^. svcShapes)
+
+    -- 2. Shape's members/fields are given a unique prefix.
+    ps <- prefix os
+
+    -- 3. Shapes which are specified as operation inputs/outputs are checked
+    --    for sharing/commonality.
+    let sh = shared (s ^. svcOperations) ps
+
+    -- 4. The textual references in operations and shapes are replaced
+    --    with actual Haskell types.
+    ts <- solve ps
+
+    -- 5. Substitution is done to replace the operation's input/output
+    --    references with actual shapes, and any non-shared shapes
+    --    are then removed from the service's shape map.
+    return $! subst sh (s & svcShapes .~ ts)
 
 -- | Replace operation input/output references with their respective shapes,
 -- removing the shape from the service if they are not shared.
 -- subst :: (Functor m, MonadError String m)
-      -- => TextMap (Operation (Ref Text))
+      -- => TextMap (Operation (Untyped Ref))
       -- -> TextMap (Untyped Shape)
       -- -> m (TextMap (Typed Shape), TextMap (Operation (Typed Shape)))
---subst :: Service (Typed Shape) (Ref Text)
---      -> Service (Typed Shape) (Ref Text)
--- subst s = shared
---   where
---     ss = s ^. svcShapes
---     oo = s ^. svcOperations
-
--- | Determine the usage of operation input/output shapes.
---
--- A shape is considered 'shared' if it is used as a field of another shape,
--- as opposed to only being referenced by the operation itself.
---
--- Returns a set of shapes that are _not_ shared.
-shared :: Service (Untyped Shape) (Ref Text) -> TextSet
-shared s = occur (execState check mempty)
+subst :: TextSet
+      -> Service (Typed Shape) (Untyped Ref)
+      -> Service (Typed Shape) (Typed Shape)
+subst _ s =
+    let (x, y) = runState (Map.traverseWithKey go os) ss
+     in s & svcOperations .~ x & svcShapes .~ y
   where
-    oo = s ^. svcOperations
+    os = s ^. svcOperations
     ss = s ^. svcShapes
 
-    -- FIXME: Need to correctly count a shape being used as a ref as shared.
-    occur :: TextMap Int -> TextSet
-    occur = Set.fromList . Map.keys . Map.filter (> 1)
-
-    check :: State (TextMap Int) ()
-    check = forM_ (Map.elems oo) $ \o -> do
-        ref (o ^. operInput  . _Just . refShape)
-        ref (o ^. operOutput . _Just . refShape)
-
-    ref :: Text -> State (TextMap Int) ()
-    ref n = count n >> maybe (pure ()) shape (Map.lookup n ss)
-
-    shape :: Untyped Shape -> State (TextMap Int) ()
-    shape = mapM_ (count . view refShape) . toListOf references
-
-    count :: Text -> State (TextMap Int) ()
-    count n  = modify (Map.insertWith (+) n 1)
+    go :: Text
+       -> Operation (Untyped Ref)
+       -> State (TextMap (Typed Shape)) (Operation (Typed Shape))
+    go n o = undefined
 
 -- | Apply the override rulset to shapes and their respective fields.
 override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
@@ -168,59 +157,6 @@ override o = Map.foldlWithKey' go mempty
     buildMapping :: (Rules -> Maybe Text) -> TextMap Text
     buildMapping f = Map.fromList $
         mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
-
--- | Replace the untyped 'Text' references with actual Haskell 'Type's.
-solve :: (Functor m, MonadError String m)
-      => TextMap (Untyped Shape)
-      -> m (TextMap (Typed Shape))
-solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
-  where
-    go :: MonadError String m
-       => Untyped Ref
-       -> StateT (TextMap Type) m (Typed Ref)
-    go r = flip (set refShape) r `liftM` memo (r ^. refShape)
-
-    memo :: MonadError String m
-         => Text
-         -> StateT (TextMap Type) m Type
-    memo n = do
-        m <- gets (Map.lookup n)
-        case m of
-            Just t  -> return t
-            Nothing ->
-                case Map.lookup n ss of
-                    Just (typ n -> t) -> modify (Map.insert n t) >> return t
-                    Nothing           -> throwError $ "Missing Shape " ++ show n
-
-    typ :: Text -> Untyped Shape -> Type
-    typ n = \case
-        SStruct _ -> AST.tyCon n
-        SList   x -> list x
-        SMap    x -> hmap x
-        SString _ -> AST.tyCon "Text"
-        SEnum   _ -> AST.tyCon n
-        SBlob   x -> stream x
-        SBool   _ -> AST.tyCon "Bool"
-        STime   x -> time x -- FIXME: This is dependent on the service.
-        SDouble _ -> AST.tyCon "Double"
-        SInt    x -> natural x "Int"
-        SLong   x -> natural x "Integer"
-      where
-        list = const (AST.tyCon "List") -- (List e a) || (List1 e a)
-
-        hmap = const (AST.tyCon "Map") -- (Map k v) || (EMap e i j k v)
-
-        stream = const (AST.tyCon "Stream") -- figure out streaming or not
-
-        time = AST.tyCon
-             . Text.pack
-             . show
-             . fromMaybe RFC822
-             . view timeTimestampFormat
-
-        natural x
-            | x ^. numMin > Just 0 = const (AST.tyCon "Natural")
-            | otherwise            = AST.tyCon
 
 -- | Assign unique prefixes to 'Enum' and 'Struct' shapes.
 prefix :: (Functor m, MonadError String m)
@@ -293,3 +229,85 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
 
         num :: Int -> CI Text
         num = CI.mk . Text.pack . show
+
+-- | Determine the usage of operation input/output shapes.
+--
+-- A shape is considered 'shared' if it is used as a field of another shape,
+-- as opposed to only being referenced by the operation itself.
+--
+-- Returns a set of shapes that are _not_ shared.
+shared :: TextMap (Operation (Untyped Ref))
+       -> TextMap (Untyped Shape)
+       -> TextSet
+shared oo ss = occur (execState check mempty)
+  where
+    -- FIXME: Need to correctly count a shape being used as a ref as shared.
+    occur :: TextMap Int -> TextSet
+    occur = Set.fromList . Map.keys . Map.filter (> 1)
+
+    check :: State (TextMap Int) ()
+    check = forM_ (Map.elems oo) $ \o -> do
+        ref (o ^. operInput  . _Just . refShape)
+        ref (o ^. operOutput . _Just . refShape)
+
+    ref :: Text -> State (TextMap Int) ()
+    ref n = count n >> maybe (pure ()) shape (Map.lookup n ss)
+
+    shape :: Untyped Shape -> State (TextMap Int) ()
+    shape = mapM_ (count . view refShape) . toListOf references
+
+    count :: Text -> State (TextMap Int) ()
+    count n  = modify (Map.insertWith (+) n 1)
+
+-- | Replace the untyped 'Text' references with actual Haskell 'Type's.
+solve :: (Functor m, MonadError String m)
+      => TextMap (Untyped Shape)
+      -> m (TextMap (Typed Shape))
+solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
+  where
+    go :: MonadError String m
+       => Untyped Ref
+       -> StateT (TextMap Type) m (Typed Ref)
+    go r = flip (set refShape) r `liftM` memo (r ^. refShape)
+
+    memo :: MonadError String m
+         => Text
+         -> StateT (TextMap Type) m Type
+    memo n = do
+        m <- gets (Map.lookup n)
+        case m of
+            Just t  -> return t
+            Nothing ->
+                case Map.lookup n ss of
+                    Just (typ n -> t) -> modify (Map.insert n t) >> return t
+                    Nothing           -> throwError $ "Missing Shape " ++ show n
+
+    typ :: Text -> Untyped Shape -> Type
+    typ n = \case
+        SStruct _ -> AST.tyCon n
+        SList   x -> list x
+        SMap    x -> hmap x
+        SString _ -> AST.tyCon "Text"
+        SEnum   _ -> AST.tyCon n
+        SBlob   x -> stream x
+        SBool   _ -> AST.tyCon "Bool"
+        STime   x -> time x -- FIXME: This is dependent on the service.
+        SDouble _ -> AST.tyCon "Double"
+        SInt    x -> natural x "Int"
+        SLong   x -> natural x "Integer"
+      where
+        list = const (AST.tyCon "List") -- (List e a) || (List1 e a)
+
+        hmap = const (AST.tyCon "Map") -- (Map k v) || (EMap e i j k v)
+
+        stream = const (AST.tyCon "Stream") -- figure out streaming or not
+
+        time = AST.tyCon
+             . Text.pack
+             . show
+             . fromMaybe RFC822
+             . view timeTimestampFormat
+
+        natural x
+            | x ^. numMin > Just 0 = const (AST.tyCon "Natural")
+            | otherwise            = AST.tyCon
