@@ -58,7 +58,7 @@ service s = do
     let rs = s ^. ovOverrides
         ss = s ^. svcShapes
     ts <- solve (override rs ss) >>= prefix
-    return $! s & svcShapes .~ ts
+    return $! (shared s, s & svcShapes .~ ts)
 
 -- | Replace operation input/output references with their respective shapes,
 -- removing the shape from the service if they are not shared.
@@ -68,36 +68,40 @@ service s = do
       -- -> m (TextMap (Typed Shape), TextMap (Operation (Typed Shape)))
 --subst :: Service (Typed Shape) (Ref Text)
 --      -> Service (Typed Shape) (Ref Text)
-subst s = shared
+-- subst s = shared
+--   where
+--     ss = s ^. svcShapes
+--     oo = s ^. svcOperations
+
+-- | Determine the usage of operation input/output shapes.
+--
+-- A shape is considered 'shared' if it is used as a field of another shape,
+-- as opposed to only being referenced by the operation itself.
+--
+-- Returns a set of shapes that are _not_ shared.
+shared :: Service (Untyped Shape) (Ref Text) -> TextSet
+shared s = occur (execState check mempty)
   where
-    ss = s ^. svcShapes
     oo = s ^. svcOperations
+    ss = s ^. svcShapes
 
-    -- | Determine the usage of operation input/output shapes.
-    --
-    -- A shape is considered 'shared' if it is used as a field of another shape,
-    -- as opposed to only being referenced by the operation itself.
-    --
-    -- Returns a set of shapes that are _not_ shared.
-    shared = occur (execState check mempty)
-      where
-        -- FIXME: Need to correctly count a shape being used as a ref as shared.
-        occur :: TextMap Int -> TextSet
-        occur = Set.fromList . Map.keys . Map.filter (> 1)
+    -- FIXME: Need to correctly count a shape being used as a ref as shared.
+    occur :: TextMap Int -> TextSet
+    occur = Set.fromList . Map.keys . Map.filter (> 1)
 
-        check :: State (TextMap Int) ()
-        check = forM_ (Map.elems oo) $ \o -> do
-            ref (o ^. operInput  . _Just . refShape)
-            ref (o ^. operOutput . _Just . refShape)
+    check :: State (TextMap Int) ()
+    check = forM_ (Map.elems oo) $ \o -> do
+        ref (o ^. operInput  . _Just . refShape)
+        ref (o ^. operOutput . _Just . refShape)
 
-        ref :: Text -> State (TextMap Int) ()
-        ref n = count (AST.tyCon n) >> maybe (pure ()) shape (Map.lookup n ss)
+    ref :: Text -> State (TextMap Int) ()
+    ref n = count n >> maybe (pure ()) shape (Map.lookup n ss)
 
-        shape :: Typed Shape -> State (TextMap Int) ()
-        shape = mapM_ (count . view refShape) . toListOf references
+    shape :: Untyped Shape -> State (TextMap Int) ()
+    shape = mapM_ (count . view refShape) . toListOf references
 
-        count :: Type -> State (TextMap Int) ()
-        count (Text.pack . prettyPrint -> n) = modify (Map.insertWith (+) n 1)
+    count :: Text -> State (TextMap Int) ()
+    count n  = modify (Map.insertWith (+) n 1)
 
 -- | Apply the override rulset to shapes and their respective fields.
 override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
