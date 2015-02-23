@@ -118,15 +118,15 @@ subst sh s =
          -> Ref
          -> Typed Shape
          -> StateT (HashMap Text Data) m (Maybe Ref)
-    move k n r s = modify (Map.delete k) >> copy n r d
+    move n k r s = modify (Map.delete k) >> copy n r d
 
     copy :: Text
          -> Ref
          -> Typed Shape
          -> State (HashMap Text Data) (Maybe Ref)
-    copy k r s = do
-        modify (Map.insert k (dataRename k d))
-        return (Just (r & refShape .~ k))
+    copy n r s = do
+        modify (Map.insert n (dataRename n d))
+        return (Just (r & refShape .~ n))
 
 -- | Apply the override rulset to shapes and their respective fields.
 override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
