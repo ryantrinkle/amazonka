@@ -198,9 +198,7 @@ instance FromJSON (Struct Text) where
         <*> o .:? "xmlNamespace"
         <*> o .:? "exception"
         <*> o .:? "fault"
-        <*> (omap <$> o .:? "members" .!= mempty)
-      where
-        omap = OrdMap.fromList . map (first member)
+        <*> (first member <$> o .:? "members" .!= mempty)
 
 data Chars = Chars
     { _charsDocumentation :: Maybe Doc

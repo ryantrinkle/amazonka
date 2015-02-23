@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE KindSignatures        #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
@@ -49,29 +48,72 @@ import           Language.Haskell.Exts.Syntax (Type)
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 
-type Untyped (f :: * -> *) = f Text
-type Typed   (f :: * -> *) = f Type
-
-type TextMap = HashMap Text
-type TextSet = HashSet Text
-
 -- FIXME: Need to deal with shared request/response types, do the renaming of
 -- said input/outputs, and remove them from the shapes list if necessary.
 
 service :: (Functor m, MonadError String m)
         => Service (Untyped Shape) a
-        -> m (Service (Shape Type) a)
+        -> m (Service (Typed Shape) a)
 service s = do
     let rs = s ^. ovOverrides
         ss = s ^. svcShapes
-    x <- solve (override rs ss) >>= prefix
-    return $! s & svcShapes .~ x
+        oo = s ^. svcOperations
+    ts <- solve (override rs ss) >>= prefix
+    -- to <- subst ts oo
+    return $! s
+       & svcShapes     .~ ts
+--       & svcOperations .~ to
+
+-- | Replace operation input/output references with their respective shapes,
+-- removing the shape from the service if they are not shared.
+-- subst :: (Functor m, MonadError String m)
+--       => TextMap (Untyped Shape)
+--       -> TextMap (Operation (Ref Text))
+--      -> m (TextMap (Typed Shape), TextMap (Operation (Typed Shape)))
+
+
+
+
+-- | Determine the usage of operation input/output shapes.
+--
+-- A shape is considered 'shared' if it is used as a field of another shapes,
+-- as opposed to only being referenced by the operation itself.
+--
+-- Returns a set of shapes that are _not_ shared.
+sharing :: Service (Untyped Shape) (Ref Text)
+        -> HashSet Text
+sharing s = occur (execState go mempty)
+  where
+    ss = s ^. svcShapes
+    oo = s ^. svcOperations
+
+    -- FIXME: Need to correctly count a shape being used as a ref as shared.
+    occur :: TextMap Int -> HashSet Text
+    occur = Set.fromList . Map.keys . Map.filter (== 1)
+
+    go :: State (TextMap Int) ()
+    go = forM_ (Map.elems oo) $ \o -> do
+        ref (o ^. operInput  . _Just . refShape)
+        ref (o ^. operOutput . _Just . refShape)
+
+    ref :: Text -> State (TextMap Int) ()
+    ref n = count n >> maybe (pure ()) shape (Map.lookup n ss)
+
+    shape :: Untyped Shape -> State (TextMap Int) ()
+    shape = mapM_ (count . view refShape) . toListOf references
+
+    count :: Text -> State (TextMap Int) ()
+    count n = modify (Map.insertWith (+) n 1)
+
 
 -- | Apply the override rulset to shapes and their respective fields.
 override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
 override o = Map.foldlWithKey' go mempty
   where
     go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
+
+     -- FIXME: Renaming should additionally operate over
+     -- the operation input/output.
 
     shape :: Rules
           -> TextMap (Untyped Shape)
@@ -167,11 +209,11 @@ solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
         SInt    x -> natural x "Int"
         SLong   x -> natural x "Integer"
       where
-        list = undefined -- (List e a) || (List1 e a)
+        list = error "typeOf.list" -- (List e a) || (List1 e a)
 
-        hmap = undefined -- (Map k v) || (EMap e i j k v)
+        hmap = error "typeOf.hamp" -- (Map k v) || (EMap e i j k v)
 
-        stream = undefined -- figure out streaming or not
+        stream = error "typeOf.stream" -- figure out streaming or not
 
         time = AST.tyCon
              . Text.pack
