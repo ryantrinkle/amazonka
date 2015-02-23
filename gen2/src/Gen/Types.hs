@@ -42,18 +42,20 @@ import           Data.SemVer               (Version, fromText)
 import           Data.String
 import           Data.Text                 (Text)
 import qualified Filesystem.Path.CurrentOS as Path
+import           Gen.OrdMap                (OrdMap)
+import qualified Gen.OrdMap                as OrdMap
 import           GHC.Generics              (Generic)
 import           Text.EDE                  (Template)
 
 encode :: Path.FilePath -> Text
 encode = either id id . Path.toText
 
-data Pre a = Pre
-    { _preKey  :: Text
-    , _preItem :: a
-    } deriving (Eq, Show)
+-- data Pre a = Pre
+--     { _preKey  :: Text
+--     , _preItem :: a
+--     } deriving (Eq, Show)
 
-makeLenses ''Pre
+-- makeLenses ''Pre
 
 -- data Name a = Name
 --     { _nameKey  :: Text
@@ -63,9 +65,13 @@ makeLenses ''Pre
 -- makeLenses ''Name
 
 data Member = Member
-    { _memOriginal :: Text
+    { _memPrefix   :: Maybe Text
+    , _memOriginal :: Text
     , _memName     :: Text
     } deriving (Show, Generic)
+
+member :: Text -> Member
+member t = Member Nothing t t
 
 instance Eq Member where
     (==) = on (==) _memName
@@ -73,7 +79,10 @@ instance Eq Member where
 instance Hashable Member
 
 instance IsString Member where
-    fromString (fromString -> t) = Member t t
+    fromString (fromString -> t) = Member Nothing t t
+
+instance FromJSON Member where
+    parseJSON = withText "member" (pure . member)
 
 makeLenses ''Member
 
@@ -81,7 +90,7 @@ data Rules = Rules
     { _ruleRenameTo   :: Maybe Text             -- ^ Rename type
     , _ruleReplacedBy :: Maybe Text             -- ^ Existing type that supplants this type
     , _ruleEnumPrefix :: Maybe Text             -- ^ Enum constructor prefix
-    , _ruleEnumValues :: HashMap Text Text      -- ^ Supplemental sum constructors.
+    , _ruleEnumValues :: OrdMap Member Text     -- ^ Supplemental sum constructors.
     , _ruleRequired   :: HashSet (CI Text)      -- ^ Required fields
     , _ruleOptional   :: HashSet (CI Text)      -- ^ Optional fields
     , _ruleRenamed    :: HashMap (CI Text) Text -- ^ Rename fields
@@ -94,10 +103,12 @@ instance FromJSON Rules where
         <$> o .:? "renameTo"
         <*> o .:? "replacedBy"
         <*> o .:? "enumPrefix"
-        <*> o .:? "enumValues" .!= mempty
+        <*> (omap <$> o .:? "enumValues" .!= mempty)
         <*> o .:? "required"   .!= mempty
         <*> o .:? "optional"   .!= mempty
         <*> o .:? "renamed"    .!= mempty
+      where
+        omap = OrdMap.fromList . map (first member)
 
 instance Default Rules where
     def = Rules Nothing Nothing Nothing mempty mempty mempty mempty

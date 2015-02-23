@@ -30,55 +30,120 @@ import           Data.Bifunctor
 import           Data.CaseInsensitive         (CI)
 import qualified Data.CaseInsensitive         as CI
 import           Data.Default.Class
-import qualified Data.Foldable                as Fold
+import           Data.HashMap.Strict          (HashMap)
 import qualified Data.HashMap.Strict          as Map
+import           Data.HashSet                 (HashSet)
 import qualified Data.HashSet                 as Set
 import           Data.List                    (intercalate)
 import           Data.Monoid
 import           Data.Text                    (Text)
 import qualified Data.Text                    as Text
 import           Data.Text.Manipulate
-import           Data.Traversable             (traverse)
 import qualified Gen.AST                      as AST
 import           Gen.Model                    hiding (Name, State)
+import           Gen.OrdMap                   (OrdMap)
 import qualified Gen.OrdMap                   as OrdMap
 import           Gen.Text                     (safeHead)
 import           Gen.Types                    hiding (override)
 import           Language.Haskell.Exts.Syntax (Type)
 
-type PS = Map.HashMap (CI Text) (Set.HashSet (CI Text))
+type PS = HashMap (CI Text) (HashSet (CI Text))
 
 type Untyped (f :: * -> *) = f Text
 type Typed   (f :: * -> *) = f Type
 
-type HashMap = Map.HashMap Text
-type HashSet = Set.HashSet Text
+type TextMap = HashMap Text
+type TextSet = HashSet Text
 
 -- FIXME: Need to deal with shared request/response types, do the renaming of
 -- said input/outputs, and remove them from the shapes list if necessary.
 
--- service :: (Functor m, MonadError String m)
---         => Service (Shape Text) (Ref Text)
---         -> m (Service (Prefix (Shape Type)) (Ref Text))
--- service s = do
---     x <- prefix . primitives $
---         override (s ^. svcOverride . ovOverrides) (s ^. svcShapes)
---     return $! s & svcShapes .~ x
+service :: (Functor m, MonadError String m)
+        => Service (Untyped Shape) a
+        -> m (Service (Shape Type) a)
+service s = do
+    let rs = s ^. ovOverrides
+        ss = s ^. svcShapes
+    x <- solve (override rs ss) >>= prefix
+    return $! s & svcShapes .~ x
+
+-- | Apply the override rulset to shapes and their respective fields.
+override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
+override o = Map.foldlWithKey' go mempty
+  where
+    go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
+
+    shape :: Rules
+          -> TextMap (Untyped Shape)
+          -> Text
+          -> (Untyped Shape)
+          -> TextMap (Untyped Shape)
+    shape rs acc n s
+        | Map.member n replacedBy          = acc
+        | Just x <- Map.lookup n renamedTo = shape rs acc x s
+        | otherwise                        = Map.insert n (rules s) acc
+      where
+        rules = requireFields
+              . optionalFields
+              . renameFields
+              . retypeFields
+              . prefixEnum
+              . appendEnum
+
+        requireFields :: Untyped Shape -> Untyped Shape
+        requireFields = _SStruct . structRequired
+            %~ (<> _ruleRequired rs)
+
+        optionalFields = _SStruct . structRequired
+            %~ (`Set.difference` _ruleOptional rs)
+
+        renameFields :: Untyped Shape -> Untyped Shape
+        renameFields = _SStruct . structMembers %~ first f
+          where
+            f k = fromMaybe k $ do
+                k' <- Map.lookup (CI.mk (k ^. memOriginal)) (_ruleRenamed rs)
+                return (k & memName .~ k')
+
+        retypeFields :: Untyped Shape -> Untyped Shape
+        retypeFields = references %~ f replacedBy . f renamedTo
+          where
+            f m v = maybe v (\x -> v & refShape .~ x)
+                $ Map.lookup (v ^. refShape) m
+
+        prefixEnum :: Untyped Shape -> Untyped Shape
+        prefixEnum = _SEnum . enumValues %~ f
+          where
+            f vs = fromMaybe vs $ do
+                p <- _ruleEnumPrefix rs
+                return $! first (memPrefix ?~ p) vs
+
+        appendEnum :: Untyped Shape -> Untyped Shape
+        appendEnum = _SEnum . enumValues <>~ _ruleEnumValues rs
+
+    renamedTo :: TextMap Text
+    renamedTo = buildMapping _ruleRenameTo
+
+    replacedBy :: TextMap Text
+    replacedBy = buildMapping _ruleReplacedBy
+
+    buildMapping :: (Rules -> Maybe Text) -> TextMap Text
+    buildMapping f = Map.fromList $
+        mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
 
 -- | Replace the untyped 'Text' references with actual Haskell 'Type's.
 solve :: (Functor m, MonadError String m)
-      => HashMap (Untyped Shape)
-      -> m (HashMap (Typed Shape))
+      => TextMap (Untyped Shape)
+      -> m (TextMap (Typed Shape))
 solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
   where
     go :: MonadError String m
        => Untyped Ref
-       -> StateT (HashMap Type) m (Typed Ref)
+       -> StateT (TextMap Type) m (Typed Ref)
     go r = flip (set refShape) r `liftM` memo (r ^. refShape)
 
     memo :: MonadError String m
          => Text
-         -> StateT (HashMap Type) m Type
+         -> StateT (TextMap Type) m Type
     memo n = do
         m <- gets (Map.lookup n)
         case m of
@@ -90,13 +155,14 @@ solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
 
     typeOf :: Text -> Untyped Shape -> Type
     typeOf n = \case
-        SStruct x -> AST.tyCon n
+        SStruct _ -> AST.tyCon n
         SList   x -> list x
         SMap    x -> hmap x
+        SString _ -> AST.tyCon "Text"
+        SEnum   _ -> AST.tyCon n
         SBlob   x -> stream x
-        SBool   x -> AST.tyCon "Bool"
-        -- FIXME: This is dependent on the service.
-        STime   x -> time x
+        SBool   _ -> AST.tyCon "Bool"
+        STime   x -> time x -- FIXME: This is dependent on the service.
         SDouble _ -> AST.tyCon "Double"
         SInt    x -> natural x "Int"
         SLong   x -> natural x "Integer"
@@ -117,142 +183,74 @@ solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
             | x ^. numMin > Just 0 = const (AST.tyCon "Natural")
             | otherwise            = AST.tyCon
 
--- -- | Assign unique prefixes to 'Enum' and 'Struct' shapes.
--- prefix :: (Functor m, MonadError String m)
---        => HashMap (Pre (Untyped Shape))
---        -> m (Map (Pre (Untyped Shape)))
--- prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
---   where
---     go :: (Functor m, MonadError String m)
---        => Text
---        -> Shape
---        -> StateT (PS, PS) m (Pre (Untyped Shape))
---     go n s = Prefix <$> unique n s <*> pure s
-
---     unique :: (Functor m, MonadError String m)
---            => Text
---            -> Shape
---            -> StateT (PS, PS) m Text
---     unique n = \case
---         SStruct x -> next n _1 (heuristics n)
---             . Set.fromList
---             . map (CI.mk . _memName)
---             . OrdMap.keys
---             $ x ^. structMembers
---         SEnum   x -> next n _2 (mempty : heuristics n)
---             . Set.fromList
---             . map CI.mk
---             . Map.keys
---             $ x ^. enumValues
---         _         -> pure n
-
---     next :: (Functor m, MonadError String m)
---          => Text
---          -> Lens' (PS, PS) PS
---          -> [CI Text]
---          -> HashSet (CI Text)
---          -> StateT (PS, PS) m Text
---     next k l []     ks = do
---         m <- use l
---         throwError . intercalate "\n" $
---               ("Error selecting prefix for: " <> Text.unpack k)
---             : ("Fields: " <> show ks)
---             : map (\h -> show h <> " => " <> show (Map.lookup h m)) (heuristics k)
---     next k l (x:xs) ks = do
---         m <- use l
---         case Map.lookup x m of
---             Just js | not (Set.null (Set.intersection js ks))
---                 -> next k l xs ks
---             _   -> l %= Map.insertWith (<>) x ks >> pure (CI.original x)
-
---     heuristics :: Text -> [CI Text]
---     heuristics n = rules ++ ordinal
---       where
---         -- Acronym preference list.
---         rules = map CI.mk $ catMaybes [r1, r2, r3, r4]
-
---         -- SomeTestType -> STT
---         r1 = toAcronym n
-
---         -- SomeTestType -> S
---         r3 = Text.toUpper <$> safeHead n
-
---         -- Some -> Some || SomeTestType -> Some
---         r2 | Text.length n <= 3 = Just n
---            | otherwise          = Just (Text.take 3 n)
-
---         -- SomeTestType -> Som
---         r4 = upperHead <$> listToMaybe (splitWords n)
-
---         -- Append an ordinal to the generated acronyms.
---         ordinal = concatMap (\i -> map (\x -> mappend x (num i)) rules) [1..3]
-
---         num :: Int -> CI Text
---         num = CI.mk . Text.pack . show
-
--- | Apply the override rulset to shapes and their respective fields.
-override :: HashMap Rules -> HashMap (Shape Text) -> HashMap (Shape Text)
-override o = Map.foldlWithKey' go mempty
+-- | Assign unique prefixes to 'Enum' and 'Struct' shapes.
+prefix :: (Functor m, MonadError String m)
+       => TextMap (Shape a)
+       -> m (TextMap (Shape a))
+prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
   where
-    go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
-
-    shape :: Rules
-          -> HashMap (Shape Text)
-          -> Text
-          -> (Shape Text)
-          -> HashMap (Shape Text)
-    shape rs acc n s
-        | Map.member n replacedBy          = acc
-        | Just x <- Map.lookup n renamedTo = shape rs acc x s
-        | otherwise                        = Map.insert n (rules s) acc
+    go :: (Functor m, MonadError String m)
+       => Text
+       -> Shape a
+       -> StateT (PS, PS) m (Shape a)
+    go n = \case
+        SStruct x -> SStruct <$> uniq (heuristics n) _1 structMembers x
+        SEnum   x -> SEnum   <$> uniq (mempty : heuristics n) _2 enumValues x
+        s         -> pure s
       where
-        rules = requireFields
-              . optionalFields
-              . renameFields
-              . retypeFields
-              . prefixEnum
-              . appendEnum
+        uniq :: (Functor m, MonadError String m)
+             => [CI Text]
+             -> Lens' (PS, PS) PS
+             -> Lens' a (OrdMap Member v)
+             -> a
+             -> StateT (PS, PS) m a
+        uniq hs f g x = do
+            p <- next n f hs (keys (x ^. g))
+            pure (x & g %~ first (memPrefix ?~ p))
 
-        requireFields :: Shape Text -> Shape Text
-        requireFields = _SStruct . structRequired
-            %~ (<> _ruleRequired rs)
+        keys :: OrdMap Member v -> HashSet (CI Text)
+        keys = Set.fromList . map (CI.mk . _memName) . OrdMap.keys
 
-        optionalFields = _SStruct . structRequired
-            %~ (`Set.difference` _ruleOptional rs)
+    next :: (Functor m, MonadError String m)
+         => Text
+         -> Lens' (PS, PS) PS
+         -> [CI Text]
+         -> HashSet (CI Text)
+         -> StateT (PS, PS) m Text
+    next k l []     ks = do
+        m <- use l
+        throwError . intercalate "\n" $
+              ("Error selecting prefix for: " <> Text.unpack k)
+            : ("Fields: " <> show ks)
+            : map (\h -> show h <> " => " <> show (Map.lookup h m)) (heuristics k)
+    next k l (x:xs) ks = do
+        m <- use l
+        case Map.lookup x m of
+            Just js | not (Set.null (Set.intersection js ks))
+                -> next k l xs ks
+            _   -> l %= Map.insertWith (<>) x ks >> pure (CI.original x)
 
-        renameFields :: Shape Text -> Shape Text
-        renameFields = _SStruct . structMembers
-            %~ OrdMap.mapWithKey (\k -> (f k,))
-          where
-            f k = fromMaybe k $ do
-                k' <- Map.lookup (CI.mk (k ^. memOriginal)) (_ruleRenamed rs)
-                return (k & memName .~ k')
+    heuristics :: Text -> [CI Text]
+    heuristics n = rules ++ ordinal
+      where
+        -- Acronym preference list.
+        rules = map CI.mk $ catMaybes [r1, r2, r3, r4]
 
-        retypeFields :: Shape Text -> Shape Text
-        retypeFields = references %~ f replacedBy . f renamedTo
-          where
-            f m v = maybe v (\x -> v & refShape .~ x)
-                $ Map.lookup (v ^. refShape) m
+        -- SomeTestType -> STT
+        r1 = toAcronym n
 
-        prefixEnum :: Shape Text -> Shape Text
-        prefixEnum = _SEnum . enumValues %~ f
-          where
-            f vs = fromMaybe vs $ do
-                p <- _ruleEnumPrefix rs
-                return . Map.fromList
-                       . map (first (p <>))
-                       $ Map.toList vs
+        -- SomeTestType -> S
+        r3 = Text.toUpper <$> safeHead n
 
-        appendEnum :: Shape Text -> Shape Text
-        appendEnum = _SEnum . enumValues %~ mappend (_ruleEnumValues rs)
+        -- Some -> Some || SomeTestType -> Some
+        r2 | Text.length n <= 3 = Just n
+           | otherwise          = Just (Text.take 3 n)
 
-    renamedTo :: HashMap Text
-    renamedTo = buildMapping _ruleRenameTo
+        -- SomeTestType -> Som
+        r4 = upperHead <$> listToMaybe (splitWords n)
 
-    replacedBy :: HashMap Text
-    replacedBy = buildMapping _ruleReplacedBy
+        -- Append an ordinal to the generated acronyms.
+        ordinal = concatMap (\i -> map (\x -> mappend x (num i)) rules) [1..3]
 
-    buildMapping :: (Rules -> Maybe Text) -> HashMap Text
-    buildMapping f = Map.fromList $
-        mapMaybe (\(k, v) -> (k,) <$> f v) (Map.toList o)
-
+        num :: Int -> CI Text
+        num = CI.mk . Text.pack . show

@@ -19,7 +19,6 @@
 module Gen.AST where
 
 import           Control.Arrow          ((***))
-import           Control.Lens           hiding (transform)
 import           Control.Monad.Except
 import           Data.HashMap.Strict    (HashMap)
 import qualified Data.HashMap.Strict    as Map
