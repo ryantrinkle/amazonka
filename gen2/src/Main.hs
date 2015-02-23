@@ -143,7 +143,7 @@ main = runScript $ do
     forM_ (o ^. optModels) $ \d -> do
         s <- service d (o ^. optOverrides)
 
-        scriptIO (print s)
+        scriptIO (print (Override.subst s))
 
         -- mapM_ (\p -> AST.pretty p >>= scriptIO . LText.putStrLn . (<> "\n"))
         --     . mapMaybe (uncurry AST.transform)
