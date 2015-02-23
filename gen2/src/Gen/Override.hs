@@ -48,6 +48,8 @@ import           Language.Haskell.Exts      (Type)
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 
+-- Prefixing needs to happen
+
 service :: (Functor m, MonadError String m)
         => Service (Untyped Shape) (Untyped Ref)
         -> m (Service (Typed Shape) (Typed Shape))
@@ -73,24 +75,58 @@ service s = do
 
 -- | Replace operation input/output references with their respective shapes,
 -- removing the shape from the service if they are not shared.
--- subst :: (Functor m, MonadError String m)
-      -- => TextMap (Operation (Untyped Ref))
-      -- -> TextMap (Untyped Shape)
-      -- -> m (TextMap (Typed Shape), TextMap (Operation (Typed Shape)))
 subst :: TextSet
       -> Service (Typed Shape) (Untyped Ref)
       -> Service (Typed Shape) (Typed Shape)
-subst _ s =
+subst sh s =
     let (x, y) = runState (Map.traverseWithKey go os) ss
      in s & svcOperations .~ x & svcShapes .~ y
   where
     os = s ^. svcOperations
     ss = s ^. svcShapes
 
-    go :: Text
+    go :: MonadError String m
+       => Text
        -> Operation (Untyped Ref)
-       -> State (TextMap (Typed Shape)) (Operation (Typed Shape))
-    go n o = undefined
+       -> StateT (TextMap (Typed Shape)) m (Operation (Typed Shape))
+    go n o = do
+        rq <- update n                 (o ^. operInput)
+        rs <- update (n <> "Response") (o ^. operOutput)
+        return $! o
+            & oInput  .~ rq
+            & oOutput .~ rs
+
+    update :: MonadError String m
+           => Text
+           -> Untyped Ref
+           -> StateT (TextMap (Typed Shape)) m (Typed Shape)
+    update n r = do
+        let k = r ^. refShape
+        s <- gets (Map.lookup k)
+        case s of
+            Just x | Set.member k sh -> copy n   r s
+            Just x                   -> move n k r s
+            _                        ->
+                throwError $ "Unable to subst " ++ show n
+
+    -- 1. if not shared, then rename the shape and delete it from the state.
+    -- 2. otherwise, copy the shape
+    -- 3. adjust the shape to suit being a request/response
+
+    move :: Text
+         -> Text
+         -> Ref
+         -> Typed Shape
+         -> StateT (HashMap Text Data) m (Maybe Ref)
+    move k n r s = modify (Map.delete k) >> copy n r d
+
+    copy :: Text
+         -> Ref
+         -> Typed Shape
+         -> State (HashMap Text Data) (Maybe Ref)
+    copy k r s = do
+        modify (Map.insert k (dataRename k d))
+        return (Just (r & refShape .~ k))
 
 -- | Apply the override rulset to shapes and their respective fields.
 override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
