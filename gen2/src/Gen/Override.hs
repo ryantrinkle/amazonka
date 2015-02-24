@@ -52,7 +52,7 @@ type PS = HashMap (CI Text) (HashSet (CI Text))
 
 service :: (Functor m, MonadError String m)
         => Service (Untyped Shape) (Untyped Ref)
-        -> m (Service (Typed Shape) (Typed Shape))
+        -> m (Service (Typed Shape) (Untyped Ref))
 service s = do
     -- 1. Override rules are applied to the raw AST.
     let os = override (s ^. ovOverrides) (s ^. svcShapes)
@@ -62,7 +62,7 @@ service s = do
 
     -- 3. Shapes which are specified as operation inputs/outputs are checked
     --    for sharing/commonality.
-    let sh = shared (s ^. svcOperations) ps
+    -- let sh = shared (s ^. svcOperations) ps
 
     -- 4. The textual references in operations and shapes are replaced
     --    with actual Haskell types.
@@ -71,62 +71,64 @@ service s = do
     -- 5. Substitution is done to replace the operation's input/output
     --    references with actual shapes, and any non-shared shapes
     --    are then removed from the service's shape map.
-    return $! subst sh (s & svcShapes .~ ts)
+--    return $! subst sh (s & svcShapes .~ ts)
 
--- | Replace operation input/output references with their respective shapes,
--- removing the shape from the service if they are not shared.
-subst :: TextSet
-      -> Service (Typed Shape) (Untyped Ref)
-      -> Service (Typed Shape) (Typed Shape)
-subst sh s =
-    let (x, y) = runState (Map.traverseWithKey go os) ss
-     in s & svcOperations .~ x & svcShapes .~ y
-  where
-    os = s ^. svcOperations
-    ss = s ^. svcShapes
+    return (s & svcShapes .~ ts)
 
-    go :: MonadError String m
-       => Text
-       -> Operation (Untyped Ref)
-       -> StateT (TextMap (Typed Shape)) m (Operation (Typed Shape))
-    go n o = do
-        rq <- update n                 (o ^. operInput)
-        rs <- update (n <> "Response") (o ^. operOutput)
-        return $! o
-            & operInput  .~ rq
-            & operOutput .~ rs
+-- -- | Replace operation input/output references with their respective shapes,
+-- -- removing the shape from the service if they are not shared.
+-- subst :: TextSet
+--       -> Service (Typed Shape) (Untyped Ref)
+--       -> Service (Typed Shape) (Typed Shape)
+-- subst sh s =
+--     let (x, y) = runState (Map.traverseWithKey go os) ss
+--      in s & svcOperations .~ x & svcShapes .~ y
+--   where
+--     os = s ^. svcOperations
+--     ss = s ^. svcShapes
 
-    update :: MonadError String m
-           => Text
-           -> Untyped Ref
-           -> StateT (TextMap (Typed Shape)) m (Typed Shape)
-    update n r = do
-        let k = r ^. refShape
-        s <- gets (Map.lookup k)
-        case s of
-            Just x | Set.member k sh -> copy n   r s
-            Just x                   -> move n k r s
-            _                        ->
-                throwError $ "Unable to subst " ++ show n
+--     go :: MonadError String m
+--        => Text
+--        -> Operation (Untyped Ref)
+--        -> StateT (TextMap (Typed Shape)) m (Operation (Typed Shape))
+--     go n o = do
+--         rq <- update n                 (o ^. operInput)
+--         rs <- update (n <> "Response") (o ^. operOutput)
+--         return $! o
+--             & operInput  .~ rq
+--             & operOutput .~ rs
 
-    -- 1. if not shared, then rename the shape and delete it from the state.
-    -- 2. otherwise, copy the shape
-    -- 3. adjust the shape to suit being a request/response
+--     update :: MonadError String m
+--            => Text
+--            -> Untyped Ref
+--            -> StateT (TextMap (Typed Shape)) m (Typed Shape)
+--     update n r = do
+--         let k = r ^. refShape
+--         s <- gets (Map.lookup k)
+--         case s of
+--             Just x | Set.member k sh -> copy n   r s
+--             Just x                   -> move n k r s
+--             _                        ->
+--                 throwError $ "Unable to subst " ++ show n
 
-    move :: Text
-         -> Text
-         -> Ref
-         -> Typed Shape
-         -> StateT (HashMap Text Data) m (Maybe Ref)
-    move n k r s = modify (Map.delete k) >> copy n r d
+--     -- 1. if not shared, then rename the shape and delete it from the state.
+--     -- 2. otherwise, copy the shape
+--     -- 3. adjust the shape to suit being a request/response
 
-    copy :: Text
-         -> Ref
-         -> Typed Shape
-         -> State (HashMap Text Data) (Maybe Ref)
-    copy n r s = undefined -- do
-        -- modify (Map.insert n (dataRename n d))
-        -- return (Just (r & refShape .~ n))
+--     -- move :: Text
+--     --      -> Text
+--     --      -> Ref
+--     --      -> Typed Shape
+--     --      -> StateT (HashMap Text (Typed Shape)) m (Maybe Ref)
+--     move n k r s = modify (Map.delete k) >> copy n r d
+
+--     -- copy :: Text
+--     --      -> Ref
+--     --      -> Typed Shape
+--     --      -> State (HashMap Text Data) (Maybe Ref)
+--     copy n r s = undefined -- do
+--         -- modify (Map.insert n (dataRename n d))
+--         -- return (Just (r & refShape .~ n))
 
 -- | Apply the override rulset to shapes and their respective fields.
 override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)

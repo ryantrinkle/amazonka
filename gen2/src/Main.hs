@@ -18,7 +18,7 @@ module Main (main) where
 
 import           Control.Applicative
 import           Control.Error
-import           Control.Lens                 hiding ((<.>), (</>), (??))
+import           Control.Lens                 hiding ((<.>), (??))
 import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.IO.Class
@@ -141,22 +141,22 @@ main = runScript $ do
     t <- templates (o ^. optTemplates)
 
     forM_ (o ^. optModels) $ \d -> do
-        (m, s) <- service d (o ^. optOverrides)
-
-        scriptIO (print m)
+        s <- service d (o ^. optOverrides)
 
         -- mapM_ (\p -> AST.pretty p >>= scriptIO . LText.putStrLn . (<> "\n"))
         --     . mapMaybe (uncurry AST.transform)
         --     $ Map.toList (s ^. svcShapes)
 
-        -- d <- writeTree "Write Library" $ Library.render (o ^. optOutput) t s
-        -- copyDirectory (o ^. optAssets) (Library.root d)
+        d <- writeTree "Write Library" $
+            Library.tree (o ^. optOutput) t (o ^. optVersion) s
 
---        say "Completed" (s ^. svcName)
+        copyDirectory (o ^. optAssets) (Library.root d)
+
+        say "Completed" (s ^. svcName)
 
     say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
-service :: FilePath -> FilePath -> Script (TextSet, Service (Typed Shape) (Untyped Ref))
+service :: FilePath -> FilePath -> Script (Service (Typed Shape) (Untyped Ref))
 service d o = do
     say "Load Service" (encode d)
     v <- version d
@@ -167,7 +167,7 @@ service d o = do
         , JSON.def "waiters"    $ decode (waiters v)
         , JSON.def "pagination" $ decode (pagers  v)
         ]
-    either (throwError . msg) (Override.service) (JSON.parse y)
+    either (throwError . msg) Override.service (JSON.parse y)
   where
     normal  = path "normal.json"
     waiters = path "waiters.json"

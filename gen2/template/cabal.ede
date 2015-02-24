@@ -13,9 +13,9 @@ extra-source-files:    README.md
 cabal-version:         >= 1.10
 
 description:
-{{ description | indent(4) }}
+{{ documentation | indent(4) }}
     .
-    /See:/ <{{ url }} AWS API Reference>
+    /See:/ <{{ documentationUrl }} AWS API Reference>
     .
     /Warning:/ This is an experimental preview release which is still under
     heavy development and not intended for public consumption, caveat emptor!
@@ -31,14 +31,8 @@ library
     ghc-options:       -Wall
 
     exposed-modules:
-      {% for mod in exposed %}
-        {% if mod.first %}  {% else %}, {% endif %}{{ mod.value }}
-      {% endfor %}
 
     other-modules:
-      {% for mod in other %}
-        {% if mod.first %}  {% else %}, {% endif %}{{ mod.value }}
-      {% endfor %}
 
     build-depends:
           amazonka-core == {{ version }}.*
