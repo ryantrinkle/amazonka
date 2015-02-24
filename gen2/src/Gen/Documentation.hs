@@ -14,9 +14,11 @@ module Gen.Documentation
     ( Doc
     , format
     , toHaddock
+    , toText
     ) where
 
 import           Control.Applicative
+import qualified Data.Aeson          as Aeson
 import           Data.Default.Class
 import           Data.Jason
 import           Data.Text           (Text)
@@ -32,9 +34,15 @@ instance Show Doc where
 instance FromJSON Doc where
     parseJSON = withText "doc" (pure . format)
 
+instance Aeson.ToJSON Doc where
+    toJSON = Aeson.String . Text.pack . toHaddock 76
+
 format :: Text -> Doc
 format = Doc . readHtml def . Text.unpack
 
 toHaddock :: Int -> Doc -> String
 toHaddock n (Doc p) =
     writeHaddock (def { writerColumns = n, writerWrapText = True }) p
+
+toText :: Int -> Doc -> Text
+toText n = Text.pack . toHaddock n

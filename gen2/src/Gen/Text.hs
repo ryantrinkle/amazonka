@@ -12,9 +12,10 @@
 
 module Gen.Text where
 
+import           Control.Error
 import           Data.Char
 import           Data.Foldable         as Fold
-import           Data.Maybe
+import           Data.Monoid
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
 import           Data.Text.ICU         (Regex)
@@ -41,6 +42,13 @@ stripPrefix p t = Text.strip . fromMaybe t $ p `Text.stripPrefix` t
 
 stripSuffix :: Text -> Text -> Text
 stripSuffix p t = Text.strip . fromMaybe t $ p `Text.stripSuffix` t
+
+indent :: Int -> Text -> Text
+indent n = Text.unlines . ini . map (sep <>) . Text.lines
+  where
+    ini xs = fromMaybe xs (initMay xs)
+
+    sep = Text.replicate n (Text.singleton ' ')
 
 constructor :: Text -> Text
 constructor = stripSuffix "_" . acronym . Text.concat . map recase . splitWords
