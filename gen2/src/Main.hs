@@ -141,7 +141,7 @@ main = runScript $ do
     t <- templates (o ^. optTemplates)
 
     forM_ (o ^. optModels) $ \d -> do
-        s <- service d (o ^. optOverrides)
+        s <- model d (o ^. optOverrides)
 
         -- mapM_ (\p -> AST.pretty p >>= scriptIO . LText.putStrLn . (<> "\n"))
         --     . mapMaybe (uncurry AST.transform)
@@ -156,9 +156,9 @@ main = runScript $ do
 
     say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
-service :: FilePath -> FilePath -> Script (Service (Typed Shape) (Untyped Ref))
-service d o = do
-    say "Load Service" (encode d)
+model :: FilePath -> FilePath -> Script (Service (Typed Shape) (Untyped Ref))
+model d o = do
+    say "Load Model" (encode d)
     v <- version d
     x <- decode override
     y <- JSON.merge <$> sequence

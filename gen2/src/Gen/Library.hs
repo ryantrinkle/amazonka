@@ -68,8 +68,10 @@ tree :: (Applicative m, MonadError String m)
      -> m (AnchoredDirTree LText.Text)
 tree d t v s = do
     env    <- AST.toEnv (AST.cabal s)
+
     cabal  <- render (t ^. tmplCabal)  env
     readme <- render (t ^. tmplReadme) env
+
     return $ encodeString d :/ dir lib
         [ dir "src" []
         -- , dir "examples"

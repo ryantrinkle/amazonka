@@ -1,8 +1,10 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
-{-# LANGUAGE TupleSections     #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE LambdaCase             #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE OverloadedStrings      #-}
+{-# LANGUAGE TemplateHaskell        #-}
+{-# LANGUAGE TupleSections          #-}
 
 -- Module      : Gen.Model
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -385,6 +387,10 @@ data Metadata = Metadata
 makeClassy ''Metadata
 deriveFromJSON camel ''Metadata
 
+svcName, svcAbbrev :: HasMetadata a => Getter a Text
+svcName   = metaServiceFullName     . to nameToText
+svcAbbrev = metaServiceAbbreviation . to abbrevToText
+
 data Service a b = Service
     { _svcMetadata         :: !Metadata
     , _svcLibrary          :: !Text
@@ -395,16 +401,12 @@ data Service a b = Service
     , _svcOverride         :: !Override
     } deriving (Eq, Show)
 
-makeLenses ''Service
+makeClassy ''Service
 
 instance HasMetadata (Service a b) where metadata = svcMetadata
 instance HasOverride (Service a b) where override = svcOverride
 
-svcName, svcAbbrev :: Getter (Service a b) Text
-svcName   = metaServiceFullName     . to nameToText
-svcAbbrev = metaServiceAbbreviation . to abbrevToText
-
-instance FromJSON (Service (Shape Text) (Ref Text)) where
+instance FromJSON (Service (Untyped Shape) (Untyped Ref)) where
     parseJSON = withObject "service" $ \o -> Service
         <$> o .:  "metadata"
         <*> o .:  "library"

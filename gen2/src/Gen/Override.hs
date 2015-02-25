@@ -73,7 +73,7 @@ service s = do
     --    are then removed from the service's shape map.
 --    return $! subst sh (s & svcShapes .~ ts)
 
-    return (s & svcShapes .~ ts)
+    return (s { _svcShapes =  ts })
 
 -- -- | Replace operation input/output references with their respective shapes,
 -- -- removing the shape from the service if they are not shared.
