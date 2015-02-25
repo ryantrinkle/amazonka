@@ -1,0 +1,20 @@
+import Network.AWS.Prelude
+import Network.AWS.Signing
+import qualified GHC.Exts
+
+{% for shape in shapes %}
+{{ shape.key }}
+{{ shape.value.type | show }}
+{{ shape.value.constructor.documentation }}
+{{ shape.value.constructor.render }}
+{{ shape.value.render }}
+  {% for lens in shape.value.lenses %}
+
+{{ lens.key }}
+{{ lens.value.documentation }}
+{{ lens.value.render }}
+  {% endfor %}
+  {% if !shape.last %}
+
+  {% endif %}
+{% endfor %}
