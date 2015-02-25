@@ -318,6 +318,20 @@ references f = \case
     hmap   x k v = SMap    $ x { _mapKey = k, _mapValue = v}
     struct x ms  = SStruct $ x { _structMembers = ms }
 
+documentation :: Lens' (Shape a) (Maybe Doc)
+documentation f = \case
+    SList   x -> SList   <$> listDocumentation   f x
+    SMap    x -> SMap    <$> mapDocumentation    f x
+    SStruct x -> SStruct <$> structDocumentation f x
+    SString x -> SString <$> charsDocumentation  f x
+    SEnum   x -> SEnum   <$> enumDocumentation   f x
+    SBlob   x -> SBlob   <$> blobDocumentation   f x
+    SBool   x -> SBool   <$> boolDocumentation   f x
+    STime   x -> STime   <$> timeDocumentation   f x
+    SInt    x -> SInt    <$> numDocumentation    f x
+    SDouble x -> SDouble <$> numDocumentation    f x
+    SLong   x -> SLong   <$> numDocumentation    f x
+
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP
     { _httpMethod     :: !Method
