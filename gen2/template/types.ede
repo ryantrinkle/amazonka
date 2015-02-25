@@ -1,39 +1,20 @@
-{% for extension in extensions %}
-{{ extension.value }}
-  {% if extension.last %}
+import Network.AWS.Prelude
+import Network.AWS.Signing
+import qualified GHC.Exts
 
-  {% endif %}
-{% endfor %}
-{% for option in options %}
-{{ option.value }}
-  {% if option.last %}
-
-  {% endif %}
-{% endfor %}
--- Module      : {{ name }}
--- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
--- License     : This Source Code Form is subject to the terms of
---               the Mozilla Public License, v. 2.0.
---               A copy of the MPL can be found in the LICENSE file or
---               you can obtain it at http://mozilla.org/MPL/2.0/.
--- Maintainer  : Brendan Hay <brendan.g.hay@gmail.com>
--- Stability   : experimental
--- Portability : non-portable (GHC extensions)
-
-module {{ name }}
-    (
-    ) where
-
-{% for import in imports %}
-{{ import.value }}
-{% endfor %}
 {% for shape in shapes %}
-  {% case shape.value.type %}
-  {% when "product" %}
+{{ shape.key }}
+{{ shape.value.type | show }}
+{{ shape.value.constructor.documentation }}
+{{ shape.value.constructor.render }}
+{{ shape.value.render }}
+  {% for lens in shape.value.lenses %}
 
-{% include "_include/product.ede" %}
-  {% when "sum" %}
+{{ lens.key }}
+{{ lens.value.documentation }}
+{{ lens.value.render }}
+  {% endfor %}
+  {% if !shape.last %}
 
-{% include "_include/sum.ede" %}
-  {% endcase %}
+  {% endif %}
 {% endfor %}
