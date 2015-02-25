@@ -6,6 +6,7 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RecordWildCards       #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
 
 -- Module      : Gen.AST
@@ -23,7 +24,7 @@ module Gen.AST where
 import           Control.Applicative    (Applicative, pure, (<$>))
 import           Control.Arrow          ((***))
 import           Control.Error
-import           Control.Lens           ((^.))
+import           Control.Lens           (makeLenses, view, (^.))
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Aeson.Types       (Pair)
@@ -48,6 +49,25 @@ import           Gen.Types
 import qualified HIndent
 import           Language.Haskell.Exts  hiding (name)
 import           Prelude                hiding (Enum)
+
+pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
+pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
+  where
+    hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
+    hoist (Right o) = return (Build.toLazyText o)
+
+    x = prettyPrintStyleMode style' mode' d
+
+    style' = style
+        { mode           = PageMode
+        , lineLength     = 80
+        , ribbonsPerLine = 1.5
+        }
+
+    mode' = defaultMode
+        { spacing = False
+        , layout  = PPNoLayout
+        }
 
 class ToEnv a where
     toEnv :: (Applicative m, MonadError String m) => a -> m Value
@@ -80,6 +100,7 @@ instance ToEnv ModuleName
 instance ToEnv ModulePragma
 instance ToEnv ImportDecl
 instance ToEnv Decl
+instance ToEnv Name
 
 data Com = Com Doc Decl
 
@@ -137,26 +158,38 @@ instance ToEnv Lib where
         ]
 
 data Cabal = Cabal
-    { _cblName             :: Text
-    , _cblLibrary          :: Text
-    , _cblVersion          :: SemVer.Version
-    , _cblDocumentation    :: Doc
-    , _cblDocumentationUrl :: Text
-    , _cblModules          :: Lib
+    { _cblVersion :: SemVer.Version
+    , _cblService :: Service (Typed Shape) (Untyped Ref)
+    , _cblModules :: Lib
     }
 
+makeLenses ''Cabal
+
+instance HasMetadata Cabal where
+    metadata = cblService . svcMetadata
+
+instance HasService Cabal (Typed Shape) (Untyped Ref) where
+    service = cblService
+
 instance ToEnv Cabal where
-    toEnv Cabal{..} = env
-       [ "name"             .- _cblName
-       , "library"          .- _cblLibrary
-       , "version"          .- SemVer.toText _cblVersion
-       , "documentation"    .- _cblDocumentation
-       , "documentationUrl" .- _cblDocumentationUrl
-       , "modules"          .- _cblModules
+    toEnv c = env
+       [ "name"             .- view svcName c
+       , "library"          .- view svcLibrary c
+       , "version"          .- SemVer.toText (c ^. cblVersion)
+       , "documentation"    .- view svcDocumentation c
+       , "documentationUrl" .- view svcDocumentationUrl c
+       , "modules"          .- view cblModules c
        ]
 
 cabal :: Service (Typed Shape) b -> Cabal
-cabal s = undefined
+cabal s = undefined -- Cabal
+--     { _cblName             =
+--     , _cblLibrary          =
+--     , _cblVersion          =
+--     , _cblDocumentation    =
+--     , _cblDocumentationUrl =
+--     , _cblModules          = lib
+
 
 datatype :: Text -> Typed Shape -> Maybe Data
 datatype t s = do
@@ -188,25 +221,6 @@ datatype t s = do
 -- unsafePretty x = either error id e
 --   where
 --     e = pretty x :: Either String LText.Text
-
-pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
-pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
-  where
-    hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
-    hoist (Right o) = return (Build.toLazyText o)
-
-    x = prettyPrintStyleMode style' mode' d
-
-    style' = style
-        { mode           = PageMode
-        , lineLength     = 80
-        , ribbonsPerLine = 1.5
-        }
-
-    mode' = defaultMode
-        { spacing = False
-        , layout  = PPNoLayout
-        }
 
 sumDecl :: Name -> OrdMap Member Text -> [Deriving] -> Decl
 sumDecl n vs = dataDecl n (sumCtor `map` OrdMap.keys vs)
