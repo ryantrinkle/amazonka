@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE ViewPatterns          #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -24,13 +25,14 @@ module Gen.AST where
 import           Control.Applicative    (Applicative, pure, (<$>))
 import           Control.Arrow          ((***))
 import           Control.Error
-import           Control.Lens           (makeLenses, view, (^.))
+import           Control.Lens           (makeClassy, makeLenses, view, (^.))
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Aeson.Types       (Pair)
 import           Data.Bifunctor
 import           Data.HashMap.Strict    (HashMap)
 import qualified Data.HashMap.Strict    as Map
+import           Data.List              (sort)
 import           Data.Maybe
 import           Data.Monoid
 import qualified Data.SemVer            as SemVer
@@ -72,10 +74,10 @@ pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
 class ToEnv a where
     toEnv :: (Applicative m, MonadError String m) => a -> m Value
 
-    default toEnv :: (Applicative m, MonadError String m, Pretty a)
+    default toEnv :: (Applicative m, MonadError String m, ToJSON a)
                   => a
                   -> m Value
-    toEnv = fmap toJSON . pretty
+    toEnv = pure . toJSON
 
 (.-) :: (Applicative m, Monad m, MonadError String m, ToEnv a)
      => Text
@@ -86,9 +88,9 @@ k .- v = (k,) <$> toEnv v
 env :: (Monad m, MonadError String m) => [m Pair] -> m Value
 env = liftM object . sequence
 
-instance ToEnv Text       where toEnv = pure . toJSON
-instance ToEnv LText.Text where toEnv = pure . toJSON
-instance ToEnv Doc        where toEnv = pure . toJSON
+instance ToEnv Text
+instance ToEnv LText.Text
+instance ToEnv Doc
 
 instance ToEnv a => ToEnv [a] where
     toEnv = fmap toJSON . traverse toEnv
@@ -96,11 +98,11 @@ instance ToEnv a => ToEnv [a] where
 instance ToEnv v => ToEnv (TextMap v) where
     toEnv = fmap toJSON . traverse toEnv
 
-instance ToEnv ModuleName
-instance ToEnv ModulePragma
-instance ToEnv ImportDecl
-instance ToEnv Decl
-instance ToEnv Name
+instance ToEnv ModuleName   where toEnv = pure . toJSON . prettyPrint
+instance ToEnv ModulePragma where toEnv = pure . toJSON . prettyPrint
+instance ToEnv ImportDecl   where toEnv = pure . toJSON . prettyPrint
+instance ToEnv Name         where toEnv = pure . toJSON . prettyPrint
+instance ToEnv Decl         where toEnv = fmap toJSON . pretty
 
 data Com = Com Doc Decl
 
@@ -127,40 +129,38 @@ instance ToEnv Data where
         , "instances"   .- _dataInst
         ]
 
-data Mod = Mod
-    { _modName      :: ModuleName
-    , _modPragmas   :: [ModulePragma]
-    , _modImports   :: [ImportDecl]
-    , _modDataTypes :: TextMap Data
-    }
+data Mod = Mod ModuleName [ModulePragma] [ModulePragma] [ImportDecl] (TextMap Data)
 
 instance ToEnv Mod where
-    toEnv Mod{..} = env
-        [ "name"      .- _modName
-        , "pragmas"   .- _modPragmas
-        , "imports"   .- _modImports
-        , "datatypes" .- _modDataTypes
+    toEnv (Mod n es os is ds) = env
+        [ "name"       .- n
+        , "extensions" .- es
+        , "options"    .- os
+        , "imports"    .- is
+        , "shapes"     .- ds
         ]
 
-data Lib = Lib
+data Library = Library
     { _libService    :: Mod
     , _libTypes      :: Mod
     , _libOperations :: [Mod]
     , _libWaiters    :: Mod
     }
 
-instance ToEnv Lib where
-    toEnv Lib{..} = env
-        [ "service"    .- _libService
-        , "types"      .- _libTypes
-        , "operations" .- _libOperations
-        , "waiters"    .- _libWaiters
+instance ToEnv Library where
+    toEnv Library{..} = env
+        [ -- "service"    .- _libService
+--          "types"      .- _libTypes
+        -- , "operations" .- _libOperations
+        -- , "waiters"    .- _libWaiters
         ]
+
+makeClassy ''Library
 
 data Cabal = Cabal
     { _cblVersion :: SemVer.Version
     , _cblService :: Service (Typed Shape) (Untyped Ref)
-    , _cblModules :: Lib
+    , _cblLibrary :: Library
     }
 
 makeLenses ''Cabal
@@ -171,6 +171,9 @@ instance HasMetadata Cabal where
 instance HasService Cabal (Typed Shape) (Untyped Ref) where
     service = cblService
 
+instance HasLibrary Cabal where
+    library = cblLibrary
+
 instance ToEnv Cabal where
     toEnv c = env
        [ "name"             .- view svcName c
@@ -178,21 +181,64 @@ instance ToEnv Cabal where
        , "version"          .- SemVer.toText (c ^. cblVersion)
        , "documentation"    .- view svcDocumentation c
        , "documentationUrl" .- view svcDocumentationUrl c
-       , "modules"          .- view cblModules c
+--       , "modules"          .- view cblModules c
        ]
 
-cabal :: Service (Typed Shape) b -> Cabal
-cabal s = undefined -- Cabal
---     { _cblName             =
---     , _cblLibrary          =
---     , _cblVersion          =
---     , _cblDocumentation    =
---     , _cblDocumentationUrl =
---     , _cblModules          = lib
+cabal :: SemVer.Version -> Service (Typed Shape) (Untyped Ref) -> Cabal
+cabal v s = Cabal v s (Library undefined (typesMod n s) [] undefined)
+  where
+    n = s ^. svcAbbrev
 
+serviceMod :: Mod
+serviceMod = undefined
 
-datatype :: Text -> Typed Shape -> Maybe Data
-datatype t s = do
+-- typesMod :: ModuleName -> Mod
+typesMod n s = Mod (moduleName n) es os is mempty
+  where
+    es = map languagePragma
+       $ sort [ "DataKinds"
+              , "DeriveGeneric"
+              , "FlexibleInstances"
+              , "GeneralizedNewtypeDeriving"
+              , "LambdaCase"
+              , "NoImplicitPrelude"
+              , "OverloadedStrings"
+              , "RecordWildCards"
+              , "TypeFamilies"
+              , "ViewPatterns"
+              ]
+
+    os =
+       [ optionsPragma "-fno-warn-unused-imports"
+       ]
+
+    is =
+       [ importDecl "Network.AWS.Prelude" False
+       , importDecl "Network.AWS.Signing" False
+       , importDecl "GHC.Exts"            True
+       ]
+
+operationMod :: Mod
+operationMod = undefined
+
+waitersMod :: Mod
+waitersMod = undefined
+
+languagePragma :: Text -> ModulePragma
+languagePragma (name -> n) = LanguagePragma (srcLoc n) [n]
+
+optionsPragma :: Text -> ModulePragma
+optionsPragma n =
+    OptionsPragma (srcLoc (name n)) (Just GHC) (Text.unpack (Text.snoc n ' '))
+
+importDecl :: Text -> Bool -> ImportDecl
+importDecl n q = ImportDecl l m q False False Nothing Nothing Nothing
+  where
+    l = srcLoc (name n)
+    m = moduleName n
+
+shapeDecl :: Text -> Typed Shape -> Maybe Data
+shapeDecl t s = do
     _ <- go s
     return $! Data
         { _dataType   = s
@@ -269,6 +315,9 @@ prefixed Nothing  = name . upperHead
 
 name :: Text -> Name
 name = Ident . Text.unpack
+
+moduleName :: Text -> ModuleName
+moduleName = ModuleName . Text.unpack
 
 srcLoc :: Name -> SrcLoc
 srcLoc = \case
