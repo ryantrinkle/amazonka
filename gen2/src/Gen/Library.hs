@@ -64,13 +64,16 @@ tree :: (Applicative m, MonadError String m)
      => FilePath
      -> Templates Protocol
      -> SemVer.Version
-     -> Service (Typed Shape) b
+     -> Service (Typed Shape) (Untyped Ref)
      -> m (AnchoredDirTree LText.Text)
 tree d t v s = do
-    env    <- AST.toEnv (AST.cabal s)
+    let c = AST.cabal v s
+
+    env    <- AST.toEnv c
 
     cabal  <- render (t ^. tmplCabal)  env
     readme <- render (t ^. tmplReadme) env
+    types  <- render (t ^. tmplTypes $ proto) =<< AST.toEnv (c ^. AST.libTypes)
 
     return $ encodeString d :/ dir lib
         [ dir "src" []
@@ -83,7 +86,7 @@ tree d t v s = do
             [ dir "Network"
                 [ dir "AWS"
                     [ dir abbrev $
-                        [ -- file "Types.hs" (types env)
+                        [ file "Types.hs" types
                         ]
         --                 , file "Waiters.hs" waiters
         --                 ] ++ map (uncurry file) operations

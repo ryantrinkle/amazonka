@@ -396,8 +396,8 @@ data Service a b = Service
     , _svcLibrary          :: !Text
     , _svcDocumentation    :: !Doc
     , _svcDocumentationUrl :: !Text
-    , _svcOperations       :: HashMap Text (Operation b)
-    , _svcShapes           :: HashMap Text a
+    , _svcOperations       :: TextMap (Operation b)
+    , _svcShapes           :: TextMap a
     , _svcOverride         :: !Override
     } deriving (Eq, Show)
 
