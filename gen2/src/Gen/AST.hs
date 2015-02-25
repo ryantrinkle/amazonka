@@ -8,7 +8,6 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE ViewPatterns          #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -20,7 +19,14 @@
 -- Stability   : experimental
 -- Portability : non-portable (GHC extensions)
 
-module Gen.AST where
+module Gen.AST
+     ( ToEnv (..)
+     , Library
+     , HasLibrary (..)
+     , Cabal
+     , cabal
+     , tyCon
+     ) where
 
 import           Control.Applicative    (Applicative, pure, (<$>))
 import           Control.Arrow          ((***))
@@ -49,7 +55,7 @@ import           Gen.OrdMap             (OrdMap)
 import qualified Gen.OrdMap             as OrdMap
 import           Gen.Types
 import qualified HIndent
-import           Language.Haskell.Exts  hiding (name)
+import           Language.Haskell.Exts  hiding (extensions, name)
 import           Prelude                hiding (Enum)
 
 pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
@@ -122,12 +128,18 @@ data Data = Data
 
 instance ToEnv Data where
     toEnv Data{..} = env
-        [ "type"        .- Text.pack "<shape>"
+        [ "type"        .- typeOf
         , "declaration" .- _dataDecl
         , "constructor" .- _dataCtor
         , "lenses"      .- _dataLenses
         , "instances"   .- _dataInst
         ]
+      where
+        typeOf :: Text
+        typeOf = case _dataType of
+            SStruct _ -> "product"
+            SEnum   _ -> "sum"
+            _         -> "other"
 
 data Mod = Mod ModuleName [ModulePragma] [ModulePragma] [ImportDecl] (TextMap Data)
 
@@ -193,30 +205,34 @@ serviceMod :: Mod
 serviceMod = undefined
 
 -- typesMod :: ModuleName -> Mod
-typesMod n s = Mod (moduleName n) es os is mempty
+typesMod n s = Mod (moduleName n) es os is ts
   where
-    es = map languagePragma
-       $ sort [ "DataKinds"
-              , "DeriveGeneric"
-              , "FlexibleInstances"
-              , "GeneralizedNewtypeDeriving"
-              , "LambdaCase"
-              , "NoImplicitPrelude"
-              , "OverloadedStrings"
-              , "RecordWildCards"
-              , "TypeFamilies"
-              , "ViewPatterns"
-              ]
-
-    os =
-       [ optionsPragma "-fno-warn-unused-imports"
+    es = extensions
+       [ "DataKinds"
+       , "DeriveGeneric"
+       , "FlexibleInstances"
+       , "GeneralizedNewtypeDeriving"
+       , "LambdaCase"
+       , "NoImplicitPrelude"
+       , "OverloadedStrings"
+       , "RecordWildCards"
+       , "TypeFamilies"
+       , "ViewPatterns"
        ]
 
-    is =
-       [ importDecl "Network.AWS.Prelude" False
-       , importDecl "Network.AWS.Signing" False
-       , importDecl "GHC.Exts"            True
+    os = options
+       [ "-fno-warn-unused-imports"
        ]
+
+    is = imports
+       [ ("Network.AWS.Prelude", False)
+       , ("Network.AWS.Signing", False)
+       , ("GHC.Exts",            True)
+       ]
+
+    ts = Map.fromList . mapMaybe f $ Map.toList (s ^. svcShapes)
+      where
+        f (n, s) = (n,) <$> shapeDecl n s
 
 operationMod :: Mod
 operationMod = undefined
@@ -224,26 +240,31 @@ operationMod = undefined
 waitersMod :: Mod
 waitersMod = undefined
 
-languagePragma :: Text -> ModulePragma
-languagePragma (name -> n) = LanguagePragma (srcLoc n) [n]
-
-optionsPragma :: Text -> ModulePragma
-optionsPragma n =
-    OptionsPragma (srcLoc (name n)) (Just GHC) (Text.unpack (Text.snoc n ' '))
-
-importDecl :: Text -> Bool -> ImportDecl
-importDecl n q = ImportDecl l m q False False Nothing Nothing Nothing
+extensions :: [Text] -> [ModulePragma]
+extensions = map f . sort
   where
-    l = srcLoc (name n)
-    m = moduleName n
+    f = LanguagePragma l . (:[]) . name
+    l = SrcLoc "extensions" 0 0
+
+options :: [Text] -> [ModulePragma]
+options = map f
+  where
+    f = OptionsPragma l (Just GHC) . Text.unpack . (`Text.snoc` ' ')
+    l = SrcLoc "options" 0 0
+
+imports :: [(Text, Bool)] -> [ImportDecl]
+imports = map f
+  where
+    f (n, q) = ImportDecl l (moduleName n) q False False Nothing Nothing Nothing
+    l        = SrcLoc "imports" 0 0
 
 shapeDecl :: Text -> Typed Shape -> Maybe Data
 shapeDecl t s = do
-    _ <- go s
+    x <- go s
     return $! Data
         { _dataType   = s
-        , _dataDecl   = FunBind []
-        , _dataCtor   = Com (format mempty) (FunBind [])
+        , _dataDecl   = x
+        , _dataCtor   = Com (fromMaybe def (s ^. documentation)) (FunBind [])
         , _dataLenses = mempty
         , _dataInst   = []
         }
@@ -259,6 +280,8 @@ shapeDecl t s = do
     -- SDouble x -> f x
     -- SLong   x -> f x
         _         -> Nothing
+
+    def = format "Documentation forthcoming."
 
     n = name t
     d = derive [Ident "Eq", Ident "Show"]

@@ -26,19 +26,21 @@ module {{ name }}
 
 {% for import in imports %}
 {{ import.value }}
-{% endfor %}
+  {% if import.last %}
 
+  {% endif %}
+{% endfor %}
 {% for shape in shapes %}
 {{ shape.key }}
 {{ shape.value.type | show }}
-{{ shape.value.constructor.documentation }}
-{{ shape.value.constructor.render }}
-{{ shape.value.render }}
+{{ shape.value.constructor.comment }}
+{{ shape.value.constructor.declaration }}
+{{ shape.value.declaration }}
   {% for lens in shape.value.lenses %}
 
 {{ lens.key }}
-{{ lens.value.documentation }}
-{{ lens.value.render }}
+{{ lens.value.comment }}
+{{ lens.value.declaration }}
   {% endfor %}
   {% if !shape.last %}
 
