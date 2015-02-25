@@ -1,6 +1,8 @@
+{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE TupleSections         #-}
 {-# LANGUAGE ViewPatterns          #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -18,10 +20,13 @@
 module Gen.JSON where
 
 import           Control.Error
+import           Control.Monad
 import           Control.Monad.Except
-import qualified Data.Aeson           as A
+import qualified Data.Aeson           as Aeson
+import qualified Data.Aeson.Types     as Aeson
 import           Data.ByteString      (ByteString)
 import           Data.Function        (on)
+import qualified Data.HashMap.Strict  as Map
 import           Data.Jason.Types
 import           Data.List
 import           Data.Monoid
@@ -50,8 +55,3 @@ merge = foldl' go mempty
       where
         g (k, x) | Just y <- lookup k ys = (k, f x y)
                  | otherwise             = (k, x)
-
--- toEnv :: (Show a, A.ToJSON a) => a -> Script A.Object
--- toEnv (A.toJSON -> A.Object o) = right o
--- toEnv e                        = left $
---     "Failed to extract JSON Object from: " ++ show e

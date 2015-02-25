@@ -147,8 +147,8 @@ main = runScript $ do
         --     . mapMaybe (uncurry AST.transform)
         --     $ Map.toList (s ^. svcShapes)
 
-        d <- writeTree "Write Library" $
-            Library.tree (o ^. optOutput) t (o ^. optVersion) s
+        d <- Library.tree (o ^. optOutput) t (o ^. optVersion) s
+            >>= writeTree "Write Library"
 
         copyDirectory (o ^. optAssets) (Library.root d)
 
@@ -199,23 +199,32 @@ templates :: FilePath -> Script (Templates Protocol)
 templates d = do
     f <- Templates
         <$> load "cabal.ede"
-        <*> load "service.ede"
-        <*> load "waiters.ede"
+        <*> pure (error "service.ede")
+        <*> pure (error "waiters.ede")
         <*> load "readme.ede"
-        <*> load "example-cabal.ede"
-        <*> load "example-makefile.ede"
+        <*> pure (error "example-cabal.ede")
+        <*> pure (error "example-makefile.ede")
 
-    x <- (,)
-        <$> load "types-xml.ede"
-        <*> load "operation-xml.ede"
+        -- <*> load "service.ede"
+        -- <*> load "waiters.ede"
+        -- <*> load "readme.ede"
+        -- <*> load "example-cabal.ede"
+        -- <*> load "example-makefile.ede"
+
+    -- x <- (,)
+    --     <$> load "types-xml.ede"
+    --     <*> load "operation-xml.ede"
 
     j <- (,)
-        <$> load "types-json.ede"
-        <*> load "operation-json.ede"
+        <$> load "types.ede"
+        <*> load "operation.ede"
 
-    q <- (,)
-        <$> load "types-query.ede"
-        <*> load "operation-query.ede"
+    -- q <- (,)
+    --     <$> load "types-query.ede"
+    --     <*> load "operation-query.ede"
+
+    let x = j
+        q = j
 
     return $! f $ \case
         JSON     -> j

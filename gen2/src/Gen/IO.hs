@@ -33,19 +33,13 @@ import           Gen.Types
 import           Prelude                   hiding (FilePath)
 import           System.Directory.Tree
 
-writeTree :: Text
-          -> AnchoredDirTree (Either String LText.Text)
-          -> Script (AnchoredDirTree ())
+writeTree :: Text -> AnchoredDirTree LText.Text -> Script (AnchoredDirTree ())
 writeTree k t = do
     d <- scriptIO (writeDirectoryWith write t)
     verify d
     return d
   where
-    write p x = do
-        say k (Text.pack p)
-        either (throwError . userError . flip mappend ("\n -> " <> p))
-               (LText.writeFile p)
-               x
+    write p x = say k (Text.pack p) >> LText.writeFile p x
 
     verify (_ :/ d)
         | [] <- xs  = return ()

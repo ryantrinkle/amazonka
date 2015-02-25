@@ -1,5 +1,8 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE TupleSections         #-}
 
 -- Module      : Gen.Library
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -13,9 +16,11 @@
 
 module Gen.Library where
 
+import           Control.Applicative
 import           Control.Error
 import           Control.Lens              (view, (^.))
 import           Control.Monad
+import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
 import           Data.Char
@@ -29,72 +34,93 @@ import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 import qualified Data.Text.Lazy            as LText
 import           Data.Text.Manipulate
+import           Data.Traversable          (traverse)
 import           Filesystem.Path.CurrentOS hiding (encode)
+import qualified Gen.AST                   as AST
 import           Gen.Documentation         as Doc
 import           Gen.Model
 import           Gen.Text
 import           Gen.Types
+import           Language.Haskell.Exts     (Decl)
 import           Prelude                   hiding (FilePath)
 import           System.Directory.Tree     hiding (file)
 import qualified Text.EDE                  as EDE
 import           Text.EDE.Filters
 
--- data Indent = Indent Int Text
+-- tree :: FilePath
+--      -> Templates Protocol
+--      -> SemVer.Version
+--      -> Service (Typed Shape) b
+--      -> AnchoredDirTree (Either String LText.Text)
 
--- instance ToJSON Indent where
---     toJSON (Indent n t) = String (indent n t)
+--               (MonadError String f, MonadError String m)
+-- => FilePath
+-- -> Templates a0
+-- -> t
+-- -> Service (Typed Shape) b
+-- -> f (AnchoredDirTree (m LText.Text))
 
-data Cabal a = Cabal SemVer.Version a
-
-instance ToJSON (Cabal (Service a b)) where
-    toJSON (Cabal v s) = object
-        [ "name"             .= nameToText (s ^. metaServiceFullName)
-        , "library"          .= view svcLibrary s
-        , "documentation"    .= view svcDocumentation s
-        , "documentationUrl" .= view svcDocumentationUrl s
-        , "version"          .= SemVer.toText v
-        ]
-
-tree :: FilePath
+tree :: (Applicative m, MonadError String m)
+     => FilePath
      -> Templates Protocol
      -> SemVer.Version
-     -> Service a b
-     -> AnchoredDirTree (Either String LText.Text)
-tree d t v s = encodeString d :/ dir lib
-    [ dir "src" []
-    -- , dir "examples"
-    --     [ dir "src" []
-    --     , file (fromText $ s ^. svcLibrary <> "-examples.cabal") cabalExample
-    --     , file "Makefile" makefileExample
-    --     ]
-    -- , dir "gen"
-    --     [ dir "Network"
-    --         [ dir "AWS"
-    --             [ dir abbrev $
-    --                 [ file "Types.hs" types
-    --                 , file "Waiters.hs" waiters
-    --                 ] ++ map (uncurry file) operations
-    --             , file (abbrev <.> "hs") service
-    --             ]
-    --         ]
-    --     ]
-    , file (lib <.> "cabal") cabal
-    , file "README.md" readme
-    ]
+     -> Service (Typed Shape) b
+     -> m (AnchoredDirTree LText.Text)
+tree d t v s = do
+    env    <- AST.toEnv (AST.cabal s)
+    cabal  <- render (t ^. tmplCabal)  env
+    readme <- render (t ^. tmplReadme) env
+    return $ encodeString d :/ dir lib
+        [ dir "src" []
+        -- , dir "examples"
+        --     [ dir "src" []
+        --     , file (fromText $ s ^. svcLibrary <> "-examples.cabal") cabalExample
+        --     , file "Makefile" makefileExample
+        --     ]
+        , dir "gen"
+            [ dir "Network"
+                [ dir "AWS"
+                    [ dir abbrev $
+                        [ -- file "Types.hs" (types env)
+                        ]
+        --                 , file "Waiters.hs" waiters
+        --                 ] ++ map (uncurry file) operations
+        --             , file (abbrev <.> "hs") service
+                    ]
+                ]
+            ]
+        , file (lib <.> "cabal") cabal
+        , file "README.md" readme
+        ]
   where
-    cabal           = render (t ^. tmplCabal)           cbl
-    readme          = render (t ^. tmplReadme)          cbl
 
-    cabalExample    = render (t ^. tmplCabalExample)    test
-    makefileExample = render (t ^. tmplMakefileExample) test
+    -- cabalExample    = render (t ^. tmplCabalExample)    test
+    -- makefileExample = render (t ^. tmplMakefileExample) test
 
-    service         = render (t ^. tmplService)         test
-    types           = render (t ^. tmplTypes $ proto)   test
-    waiters         = render (t ^. tmplWaiters)         test
+    -- service         = render (t ^. tmplService)         test
+    -- waiters         = render (t ^. tmplWaiters)         test
 
+    -- Types:
+    --   key        = name
+    --   value      =
+    --     type     = <shape_type>
+    --     ctor     = Text
+    --     pretty   = Text
+    --     lenses[] = Text
 
-    cbl  = toJSON (Cabal v s)
-    test = toJSON Null
+    -- types = do
+    --     let ss = Map.fromList . catMaybes . map (\(k, v) -> (k,) <$> AST.transform k v) $ Map.toList (s ^. svcShapes)
+    --     ds <- traverse AST.json ss
+    --     render (t ^. tmplTypes $ proto) $ object
+    --         [ "namespace" .= Text.pack "Network.AWS.<service>.Types"
+    --         , "service"   .= object
+    --             [ "abbrev" .= view svcAbbrev s
+    --             , "error"  .= Text.pack "<service>Error"
+    --             ]
+    --         , "shapes"    .= ds
+    --         ]
+
+    -- cbl = toJSON (Cabal v s)
 
 --    operations      = map f . Map.toList $ s ^. svcOperations
       -- where
@@ -107,9 +133,10 @@ tree d t v s = encodeString d :/ dir lib
     abbrev = fromText (s ^. svcAbbrev)
     lib    = fromText (s ^. svcLibrary)
 
-render :: EDE.Template -> Value -> Either String LText.Text
-render x = note "Error serialising template params." . EDE.fromValue
-    >=> EDE.eitherRenderWith filters x
+render :: (Monad m, MonadError String m) => EDE.Template -> Value -> m LText.Text
+render x v = either throwError return $
+    note ("Error serialising params: " ++ show v) (EDE.fromValue v)
+        >>= EDE.eitherRenderWith filters x
   where
     filters = Map.fromList
         [ "indent" @: flip indent
