@@ -41,7 +41,7 @@ import           Data.HashMap.Strict    (HashMap)
 import qualified Data.HashMap.Strict    as Map
 import           Data.List              (sort)
 import           Data.Maybe
-import           Data.Monoid
+import           Data.Monoid            hiding (Sum)
 import qualified Data.SemVer            as SemVer
 import           Data.Text              (Text)
 import qualified Data.Text              as Text
@@ -121,30 +121,27 @@ instance ToEnv (f Doc) => ToEnv (Com f) where
         , "declaration" .- y
         ]
 
-data Data = Data
-    { _dataType   :: Typed Shape
-    , _dataDecl   :: Decl
-    , _dataCtor   :: Com Above
-    , _dataLenses :: TextMap (Com Above)
-    , _dataInst   :: [Decl]
-    }
+data Data
+    = Prod (Typed Struct) Decl (Com Above) (TextMap (Com Above)) [Decl]
+    | Sum  Enum (Com Above) [Decl]
+
+Sorting?
 
 instance ToEnv Data where
-    toEnv Data{..} = env
-        [ "type"        .- typeOf
-        , "declaration" .- _dataDecl
-        , "constructor" .- _dataCtor
-        , "lenses"      .- _dataLenses
-        , "instances"   .- _dataInst
-        ]
-      where
-        typeOf :: Text
-        typeOf = case _dataType of
-            SStruct _ -> "product"
-            SEnum   _ -> "sum"
-            _         -> "other"
-
--- FIXME: just leave typeof as the actual shape?
+    toEnv = env . \case
+        Prod _ decl ctor ls is ->
+            [ "type"        .- Text.pack "product"
+            , "declaration" .- decl
+            , "constructor" .- ctor
+            , "lenses"      .- ls
+            , "instances"   .- is
+            ]
+        Sum  _ (Com x y) is ->
+            [ "type"        .- Text.pack "sum"
+            , "declaration" .- y
+            , "comment"     .- x
+            , "instances"   .- is
+            ]
 
 data Mod = Mod ModuleName [ModulePragma] [ModulePragma] [ImportDecl] (TextMap Data)
 
@@ -264,32 +261,47 @@ imports = map f
     l        = SrcLoc "imports" 0 0
 
 shapeDecl :: Text -> Typed Shape -> Maybe Data
-shapeDecl t s = do
-    x <- go s
-    return $! Data
-        { _dataType   = s
-        , _dataDecl   = x
-        , _dataCtor   = Com (Above 0 $ fromMaybe def (s ^. documentation)) (FunBind [])
-        , _dataLenses = mempty
-        , _dataInst   = []
-        }
+shapeDecl t s = case s of
+    SStruct x -> Just $ Prod x (recDecl n (x ^. structMembers) d) (com $ FunBind []) mempty []
+    SEnum   x -> Just $ Sum  x (com $ sumDecl n (x ^. enumValues) d) []
+    _         -> Nothing
   where
-    go = \case
-        SStruct x -> Just $ recDecl n (x ^. structMembers) d
-        SEnum   x -> Just $ sumDecl n (x ^. enumValues) d
---        SString x -> Just $ recDecl n k (OrdMap.fromList [(Member t t, refer "Text")]) d
-    -- SBlob   x -> f x
-    -- SBool   x -> f x
-    -- STime   x -> f x
-    -- SInt    x -> f x
-    -- SDouble x -> f x
-    -- SLong   x -> f x
-        _         -> Nothing
+    com = Com doc
+    doc = Above 0 $ fromMaybe def (s ^. documentation)
+
+--     x <- go s
+--     return $! Data
+--         { _dataType   = s
+--         , _dataDecl   = x
+--         , _dataCtor   = Com (Above 0 $ fromMaybe def (s ^. documentation)) (FunBind [])
+--         , _dataLenses = mempty
+--         , _dataInst   = []
+--         }
+--   where
+--     go = \case
+--         SStruct x -> Just $
+--         SEnum   x -> Just $ sumDecl n (x ^. enumValues) d
+-- --        SString x -> Just $ recDecl n k (OrdMap.fromList [(Member t t, refer "Text")]) d
+--     -- SBlob   x -> f x
+--     -- SBool   x -> f x
+--     -- STime   x -> f x
+--     -- SInt    x -> f x
+--     -- SDouble x -> f x
+--     -- SLong   x -> f x
+--         _         -> Nothing
 
     def = format "Documentation forthcoming."
 
     n = name t
     d = derive [Ident "Eq", Ident "Show"]
+
+-- Enums and Structs have different facets;
+-- Struct:
+--  documentation is attached to a constructor
+--  lenses
+-- Enum:
+--  documentation is attached to datatype
+--  wholly exported
 
 -- unsafePretty :: Pretty a => a -> LText.Text
 -- unsafePretty x = either error id e

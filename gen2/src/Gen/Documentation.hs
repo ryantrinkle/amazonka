@@ -59,7 +59,7 @@ layout n start com = pref . Text.lines . Text.pack . haddock col
     pref (x:xs) = begin <> x <> foldMap (mappend sep) xs
 
     begin = indent <> start
-    sep   = indent <> com
+    sep   = "\n" <> indent <> com
 
     indent = Text.replicate pad (Text.singleton ' ')
 
