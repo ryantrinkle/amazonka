@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- Module      : Gen.Documentation
@@ -11,38 +12,63 @@
 -- Portability : non-portable (GHC extensions)
 
 module Gen.Documentation
-    ( Doc
+    ( Above (..)
+    , Below (..)
+    , Blank (..)
+    , Doc
     , format
-    , toHaddock
-    , toText
     ) where
 
 import           Control.Applicative
 import qualified Data.Aeson          as Aeson
 import           Data.Default.Class
+import           Data.Foldable       (foldMap)
 import           Data.Jason
+import           Data.Monoid
 import           Data.Text           (Text)
 import qualified Data.Text           as Text
+import           Gen.Text
 import           Text.Pandoc
+
+data Above a = Above Int a
+data Below a = Below Int a
+data Blank a = Blank Int a
 
 newtype Doc = Doc Pandoc
     deriving (Eq)
 
 instance Show Doc where
-    show = toHaddock 72
+    show = haddock 255
 
 instance FromJSON Doc where
     parseJSON = withText "doc" (pure . format)
 
-instance Aeson.ToJSON Doc where
-    toJSON = Aeson.String . Text.pack . toHaddock 76
+instance Aeson.ToJSON (Above Doc) where
+    toJSON (Above n d) = Aeson.String (layout n "-- | " "-- " d)
+
+instance Aeson.ToJSON (Below Doc) where
+    toJSON (Below n d) = Aeson.String (layout n "-- ^ " "-- " d)
+
+instance Aeson.ToJSON (Blank Doc) where
+    toJSON (Blank n d) = Aeson.String (layout n mempty mempty d)
+
+layout :: Int -> Text -> Text -> Doc -> Text
+layout n start com = pref . Text.lines . Text.pack . haddock col
+  where
+    pref []     = mempty
+    pref (x:xs) = begin <> x <> foldMap (mappend sep) xs
+
+    begin = indent <> start
+    sep   = indent <> com
+
+    indent = Text.replicate pad (Text.singleton ' ')
+
+    pad = abs n
+    col = abs (80 - pad - 4)
 
 format :: Text -> Doc
 format = Doc . readHtml def . Text.unpack
 
-toHaddock :: Int -> Doc -> String
-toHaddock n (Doc p) =
-    writeHaddock (def { writerColumns = n, writerWrapText = True }) p
-
-toText :: Int -> Doc -> Text
-toText n = Text.pack . toHaddock n
+haddock :: Int -> Doc -> String
+haddock col (Doc p) =
+    writeHaddock (def { writerColumns = col, writerWrapText = True }) p

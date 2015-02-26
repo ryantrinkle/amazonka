@@ -143,8 +143,8 @@ render x v = either throwError return $
     note ("Error serialising params: " ++ show v) (EDE.fromValue v)
         >>= EDE.eitherRenderWith filters x
   where
-    filters = Map.fromList
-        [ "indent" @: flip indent
+    filters = mempty -- Map.fromList
+--        [ "indent" @: flip indent
         -- , "highlight"    @: highlightType
         -- , "parens"       @: parens
         -- , "wrapped"      @: wrapped
@@ -152,7 +152,7 @@ render x v = either throwError return $
         -- , "joinedLength" @: joinedLength
         -- , "member"       @: (elem :: Text -> [Text] -> Bool)
         -- , "waiter"       @: waiter
-        ]
+--        ]
 
 root :: AnchoredDirTree a -> FilePath
 root (p :/ d) = decodeString p </> decodeString (name d)
