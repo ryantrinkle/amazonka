@@ -26,23 +26,22 @@ module {{ name }}
 
 {% for import in imports %}
 {{ import.value }}
-  {% if import.last %}
-
-  {% endif %}
 {% endfor %}
 {% for shape in shapes %}
-{{ shape.key }}
-{{ shape.value.type | show }}
+  {% case shape.value.type %}
+  {% when "product" %}
+
 {{ shape.value.constructor.comment }}
 {{ shape.value.constructor.declaration }}
 {{ shape.value.declaration }}
-  {% for lens in shape.value.lenses %}
+    {% for lens in shape.value.lenses %}
 
-{{ lens.key }}
 {{ lens.value.comment }}
 {{ lens.value.declaration }}
-  {% endfor %}
-  {% if !shape.last %}
+{% endfor %}
+{% when "sum" %}
 
-  {% endif %}
+{{ shape.value.comment }}
+{{ shape.value.declaration }}
+  {% endcase %}
 {% endfor %}
