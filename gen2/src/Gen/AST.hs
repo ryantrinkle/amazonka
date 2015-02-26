@@ -8,6 +8,7 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
+{-# LANGUAGE UndecidableInstances  #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -58,11 +59,11 @@ import qualified HIndent
 import           Language.Haskell.Exts  hiding (extensions, name)
 import           Prelude                hiding (Enum)
 
-pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
-pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
+-- pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
+pretty d = x -- hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
   where
-    hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
-    hoist (Right o) = return (Build.toLazyText o)
+    -- hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
+    -- hoist (Right o) = return (Build.toLazyText o)
 
     x = prettyPrintStyleMode style' mode' d
 
@@ -96,7 +97,9 @@ env = liftM object . sequence
 
 instance ToEnv Text
 instance ToEnv LText.Text
-instance ToEnv Doc
+instance ToEnv (Above Doc)
+instance ToEnv (Below Doc)
+instance ToEnv (Blank Doc)
 
 instance ToEnv a => ToEnv [a] where
     toEnv = fmap toJSON . traverse toEnv
@@ -108,11 +111,11 @@ instance ToEnv ModuleName   where toEnv = pure . toJSON . prettyPrint
 instance ToEnv ModulePragma where toEnv = pure . toJSON . prettyPrint
 instance ToEnv ImportDecl   where toEnv = pure . toJSON . prettyPrint
 instance ToEnv Name         where toEnv = pure . toJSON . prettyPrint
-instance ToEnv Decl         where toEnv = fmap toJSON . pretty
+instance ToEnv Decl         where toEnv = pure . toJSON . pretty -- fmap toJSON . pretty
 
-data Com = Com Doc Decl
+data Com f = Com (f Doc) Decl
 
-instance ToEnv Com where
+instance ToEnv (f Doc) => ToEnv (Com f) where
     toEnv (Com x y) = env
         [ "comment"     .- x
         , "declaration" .- y
@@ -121,8 +124,8 @@ instance ToEnv Com where
 data Data = Data
     { _dataType   :: Typed Shape
     , _dataDecl   :: Decl
-    , _dataCtor   :: Com
-    , _dataLenses :: TextMap Com
+    , _dataCtor   :: Com Above
+    , _dataLenses :: TextMap (Com Above)
     , _dataInst   :: [Decl]
     }
 
@@ -140,6 +143,8 @@ instance ToEnv Data where
             SStruct _ -> "product"
             SEnum   _ -> "sum"
             _         -> "other"
+
+-- FIXME: just leave typeof as the actual shape?
 
 data Mod = Mod ModuleName [ModulePragma] [ModulePragma] [ImportDecl] (TextMap Data)
 
@@ -191,7 +196,7 @@ instance ToEnv Cabal where
        [ "name"             .- view svcName c
        , "library"          .- view svcLibrary c
        , "version"          .- SemVer.toText (c ^. cblVersion)
-       , "documentation"    .- view svcDocumentation c
+       , "documentation"    .- Blank 4 (c ^. svcDocumentation)
        , "documentationUrl" .- view svcDocumentationUrl c
 --       , "modules"          .- view cblModules c
        ]
@@ -264,7 +269,7 @@ shapeDecl t s = do
     return $! Data
         { _dataType   = s
         , _dataDecl   = x
-        , _dataCtor   = Com (fromMaybe def (s ^. documentation)) (FunBind [])
+        , _dataCtor   = Com (Above 0 $ fromMaybe def (s ^. documentation)) (FunBind [])
         , _dataLenses = mempty
         , _dataInst   = []
         }

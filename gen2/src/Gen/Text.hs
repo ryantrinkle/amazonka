@@ -43,12 +43,12 @@ stripPrefix p t = Text.strip . fromMaybe t $ p `Text.stripPrefix` t
 stripSuffix :: Text -> Text -> Text
 stripSuffix p t = Text.strip . fromMaybe t $ p `Text.stripSuffix` t
 
-indent :: Int -> Text -> Text
-indent n = Text.unlines . ini . map (sep <>) . Text.lines
-  where
-    ini xs = fromMaybe xs (initMay xs)
+-- indent :: Int -> Text -> Text
+-- indent n = Text.unlines . ini . map (sep <>) . Text.lines
+--   where
+--     ini xs = fromMaybe xs (initMay xs)
 
-    sep = Text.replicate n (Text.singleton ' ')
+--     sep = Text.replicate n (Text.singleton ' ')
 
 constructor :: Text -> Text
 constructor = stripSuffix "_" . acronym . Text.concat . map recase . splitWords
