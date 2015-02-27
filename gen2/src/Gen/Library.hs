@@ -33,6 +33,7 @@ import qualified Data.SemVer               as SemVer
 import           Data.Text                 (Text)
 import qualified Data.Text                 as Text
 import qualified Data.Text.Lazy            as LText
+import qualified Data.Text.Lazy.Builder    as Build
 import           Data.Text.Manipulate
 import           Data.Traversable          (traverse)
 import           Filesystem.Path.CurrentOS hiding (encode)
@@ -41,6 +42,7 @@ import           Gen.Documentation         as Doc
 import           Gen.Model
 import           Gen.Text
 import           Gen.Types
+import qualified HIndent
 import           Language.Haskell.Exts     (Decl)
 import           Prelude                   hiding (FilePath)
 import           System.Directory.Tree     hiding (file)
@@ -73,7 +75,9 @@ tree d t v s = do
 
     cabal  <- render (t ^. tmplCabal)  env
     readme <- render (t ^. tmplReadme) env
-    types  <- render (t ^. tmplTypes $ proto) =<< AST.toEnv (c ^. AST.libTypes)
+
+    types  <- AST.toEnv (c ^. AST.libTypes)
+        >>= render (t ^. tmplTypes $ proto)
 
     return $ encodeString d :/ dir lib
         [ dir "src" []
@@ -137,6 +141,10 @@ tree d t v s = do
 
     abbrev = fromText (s ^. svcAbbrev)
     lib    = fromText (s ^. svcLibrary)
+
+-- reformat :: (Monad m, MonadError String m) => LText.Text -> m LText.Text
+-- reformat = either throwError (return . Build.toLazyText)
+--     . HIndent.reformat HIndent.johanTibell Nothing
 
 render :: (Monad m, MonadError String m) => EDE.Template -> Value -> m LText.Text
 render x v = either throwError return $

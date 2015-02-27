@@ -44,13 +44,14 @@ import           Data.List              (sort)
 import           Data.Maybe
 import           Data.Monoid            hiding (Sum)
 import qualified Data.SemVer            as SemVer
+import           Data.String
 import           Data.Text              (Text)
 import qualified Data.Text              as Text
 import qualified Data.Text.Lazy         as LText
 import qualified Data.Text.Lazy.Builder as Build
 import           Data.Text.Manipulate
 import           Data.Traversable       (traverse)
-import           Gen.Documentation
+import           Gen.Documentation      as Doc
 import           Gen.JSON
 import           Gen.Model              hiding (Name)
 import           Gen.OrdMap             (OrdMap)
@@ -60,11 +61,11 @@ import qualified HIndent
 import           Language.Haskell.Exts  hiding (extensions, name)
 import           Prelude                hiding (Enum)
 
--- pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
-pretty d = x -- hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
+pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
+pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
   where
-    -- hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
-    -- hoist (Right o) = return (Build.toLazyText o)
+    hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
+    hoist (Right o) = return (Build.toLazyText o)
 
     x = prettyPrintStyleMode style' mode' d
 
@@ -112,35 +113,37 @@ instance ToEnv ModuleName   where toEnv = pure . toJSON . prettyPrint
 instance ToEnv ModulePragma where toEnv = pure . toJSON . prettyPrint
 instance ToEnv ImportDecl   where toEnv = pure . toJSON . prettyPrint
 instance ToEnv Name         where toEnv = pure . toJSON . prettyPrint
-instance ToEnv Decl         where toEnv = pure . toJSON . pretty -- fmap toJSON . pretty
+instance ToEnv Decl         where toEnv = fmap toJSON . pretty
 
-data Com f = Com (f Doc) Decl
+data Fun = Fun Doc Decl Decl
 
-instance ToEnv (f Doc) => ToEnv (Com f) where
-    toEnv (Com x y) = env
-        [ "comment"     .- x
-        , "declaration" .- y
+instance ToEnv Fun where
+    toEnv (Fun doc sig decl) = env
+        [ "comment"     .- Above 0 doc
+        , "signature"   .- sig
+        , "declaration" .- decl
         ]
 
 data Data
-    = Prod (Typed Struct) Decl (Com Above) (TextMap (Com Above)) [Decl]
-    | Sum  Enum (Com Above) [Decl]
+    = Prod (Typed Struct) Doc Decl Fun (TextMap Fun) [Decl]
+    | Sum Enum Doc Decl [Decl]
 
 -- Sorting of types?
 
 instance ToEnv Data where
     toEnv = env . \case
-        Prod _ decl ctor ls is ->
+        Prod _ doc decl ctor ls is ->
             [ "type"        .- Text.pack "product"
-            , "declaration" .- decl
             , "constructor" .- ctor
+            , "comment"     .- Above 0 doc
+            , "declaration" .- decl
             , "lenses"      .- ls
             , "instances"   .- is
             ]
-        Sum  _ (Com x y) is ->
+        Sum  _ doc decl is ->
             [ "type"        .- Text.pack "sum"
-            , "declaration" .- y
-            , "comment"     .- x
+            , "comment"     .- Above 0 doc
+            , "declaration" .- decl
             , "instances"   .- is
             ]
 
@@ -263,23 +266,30 @@ imports = map f
 
 shapeDecl :: Text -> Typed Shape -> Maybe Data
 shapeDecl t s = case s of
-    SStruct x -> Just $ Prod x (recDecl n (x ^. structMembers) d) (com $ ctorDecl t x) mempty []
-    SEnum   x -> Just $ Sum  x (com $ sumDecl n (x ^. enumValues) d) []
+    SStruct x -> Just $ Prod x doc (recDecl n (x ^. structMembers) d) (ctorDecl t x) mempty []
+    SEnum   x -> Just $ Sum  x doc (sumDecl n (x ^. enumValues)    d) []
     _         -> Nothing
   where
-    com = Com doc
-    doc = Above 0 $ fromMaybe def (s ^. documentation)
-
-    def = format "Documentation forthcoming."
+    doc = shapeDoc t s
 
     n = name t
     d = derive [Ident "Eq", Ident "Show"]
 
- -- sfun :: SrcLoc -> Name -> [Name] -> Rhs -> Binds -> Decl
-
-ctorDecl :: Text -> Typed Struct -> (Decl, Decl)
-ctorDecl t x = (sig', fun')
+shapeDoc :: Text -> Shape a -> Doc
+shapeDoc t s = case s of
+    SStruct {} -> doc "Undocumented type." `Doc.append` ctor
+    SEnum   {} -> doc "Undocumented enumeration type."
+    _          -> doc "Undocumented type."
   where
+    doc d = fromMaybe d (s ^. documentation)
+
+    ctor = "\n/See:/ '" <> lowerHead t <> "'"
+
+ctorDecl :: Text -> Typed Struct -> Fun
+ctorDecl t x = Fun d sig' fun'
+  where
+    d = fromString ("'" <> Text.unpack t <> "' constructor.")
+
     c = name (lowerHead t)
     n = name t
     l = SrcLoc "ctorDecl" 0 0

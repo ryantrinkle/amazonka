@@ -31,12 +31,16 @@ module {{ name }}
   {% case shape.value.type %}
   {% when "product" %}
 
-{{ shape.value.constructor.comment }}
-{{ shape.value.constructor.declaration }}
+{{ shape.value.comment }}
 {{ shape.value.declaration }}
+
+{{ shape.value.constructor.comment }}
+{{ shape.value.constructor.signature }}
+{{ shape.value.constructor.declaration }}
     {% for lens in shape.value.lenses %}
 
 {{ lens.value.comment }}
+{{ lens.value.signature }}
 {{ lens.value.declaration }}
     {% endfor %}
   {% when "sum" %}
