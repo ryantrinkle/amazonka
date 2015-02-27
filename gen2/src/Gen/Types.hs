@@ -41,6 +41,7 @@ import           Data.Monoid
 import           Data.SemVer                  (Version, fromText)
 import           Data.String
 import           Data.Text                    (Text)
+import qualified Data.Text                    as Text
 import qualified Filesystem.Path.CurrentOS    as Path
 import           Gen.OrdMap                   (OrdMap)
 import qualified Gen.OrdMap                   as OrdMap
