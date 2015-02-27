@@ -38,8 +38,8 @@ module {{ name }}
 
 {{ lens.value.comment }}
 {{ lens.value.declaration }}
-{% endfor %}
-{% when "sum" %}
+    {% endfor %}
+  {% when "sum" %}
 
 {{ shape.value.comment }}
 {{ shape.value.declaration }}

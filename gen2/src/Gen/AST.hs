@@ -37,6 +37,7 @@ import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Aeson.Types       (Pair)
 import           Data.Bifunctor
+import           Data.Foldable          (foldr')
 import           Data.HashMap.Strict    (HashMap)
 import qualified Data.HashMap.Strict    as Map
 import           Data.List              (sort)
@@ -125,7 +126,7 @@ data Data
     = Prod (Typed Struct) Decl (Com Above) (TextMap (Com Above)) [Decl]
     | Sum  Enum (Com Above) [Decl]
 
-Sorting?
+-- Sorting of types?
 
 instance ToEnv Data where
     toEnv = env . \case
@@ -161,13 +162,13 @@ data Library = Library
     , _libWaiters    :: Mod
     }
 
-instance ToEnv Library where
-    toEnv Library{..} = env
-        [ -- "service"    .- _libService
---          "types"      .- _libTypes
-        -- , "operations" .- _libOperations
-        -- , "waiters"    .- _libWaiters
-        ]
+-- instance ToEnv Library where
+--     toEnv Library{..} = env
+--         [ -- "service"    .- _libService
+-- --          "types"      .- _libTypes
+--         -- , "operations" .- _libOperations
+--         -- , "waiters"    .- _libWaiters
+--         ]
 
 makeClassy ''Library
 
@@ -262,38 +263,53 @@ imports = map f
 
 shapeDecl :: Text -> Typed Shape -> Maybe Data
 shapeDecl t s = case s of
-    SStruct x -> Just $ Prod x (recDecl n (x ^. structMembers) d) (com $ FunBind []) mempty []
+    SStruct x -> Just $ Prod x (recDecl n (x ^. structMembers) d) (com $ ctorDecl t x) mempty []
     SEnum   x -> Just $ Sum  x (com $ sumDecl n (x ^. enumValues) d) []
     _         -> Nothing
   where
     com = Com doc
     doc = Above 0 $ fromMaybe def (s ^. documentation)
 
---     x <- go s
---     return $! Data
---         { _dataType   = s
---         , _dataDecl   = x
---         , _dataCtor   = Com (Above 0 $ fromMaybe def (s ^. documentation)) (FunBind [])
---         , _dataLenses = mempty
---         , _dataInst   = []
---         }
---   where
---     go = \case
---         SStruct x -> Just $
---         SEnum   x -> Just $ sumDecl n (x ^. enumValues) d
--- --        SString x -> Just $ recDecl n k (OrdMap.fromList [(Member t t, refer "Text")]) d
---     -- SBlob   x -> f x
---     -- SBool   x -> f x
---     -- STime   x -> f x
---     -- SInt    x -> f x
---     -- SDouble x -> f x
---     -- SLong   x -> f x
---         _         -> Nothing
-
     def = format "Documentation forthcoming."
 
     n = name t
     d = derive [Ident "Eq", Ident "Show"]
+
+ -- sfun :: SrcLoc -> Name -> [Name] -> Rhs -> Binds -> Decl
+
+ctorDecl :: Text -> Typed Struct -> (Decl, Decl)
+ctorDecl t x = (sig', fun')
+  where
+    c = name (lowerHead t)
+    n = name t
+    l = SrcLoc "ctorDecl" 0 0
+
+    fs = [ FieldUpdate (UnQual (Ident "_field1")) (Var (UnQual (Ident "p1")))
+         , FieldUpdate (UnQual (Ident "_field2")) (Var (UnQual (Ident "p2")))
+         ]
+
+    fun' = sfun l c params (UnGuardedRhs (RecConstr (UnQual n) fs)) (BDecls [])
+
+    sig' = typeSig c ["_field1", "_field2"]
+
+    -- f = FunBind
+    --  [ Match l c params Nothing
+    --    (UnGuardedRhs (RecConstr (UnQual n)
+    --      [ FieldUpdate (UnQual (Ident "_field1")) (Var (UnQual (Ident "p1")))
+    --      , FieldUpdate (UnQual (Ident "_field2")) (Var (UnQual (Ident "p2")))
+    --      ]))
+    --    (BDecls [])
+    --  ]
+
+    params = [Ident "p1", Ident "p2"]
+
+typeSig :: Name -> [Text] -> Decl
+typeSig n = TypeSig l [n] . f
+  where
+    l = SrcLoc "typeSig" 0 0
+
+    f []     = unit_tycon
+    f (x:xs) = foldr' (\y g -> TyFun (tyCon y) g) (tyCon x) xs
 
 -- Enums and Structs have different facets;
 -- Struct:
