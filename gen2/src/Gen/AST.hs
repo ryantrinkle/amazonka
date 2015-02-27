@@ -59,7 +59,7 @@ import           Gen.OrdMap             (OrdMap)
 import qualified Gen.OrdMap             as OrdMap
 import           Gen.Types
 import qualified HIndent
-import           Language.Haskell.Exts  hiding (extensions, name)
+import           Language.Haskell.Exts  hiding (extensions, loc, name)
 import           Prelude                hiding (Enum)
 
 pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
@@ -249,26 +249,19 @@ waitersMod :: Mod
 waitersMod = undefined
 
 extensions :: [Text] -> [ModulePragma]
-extensions = map f . sort
-  where
-    f = LanguagePragma l . (:[]) . name
-    l = SrcLoc "extensions" 0 0
+extensions = map (LanguagePragma loc . (:[]) . name) . sort
 
 options :: [Text] -> [ModulePragma]
-options = map f
-  where
-    f = OptionsPragma l (Just GHC) . Text.unpack . (`Text.snoc` ' ')
-    l = SrcLoc "options" 0 0
+options = map (OptionsPragma loc (Just GHC) . Text.unpack . (`Text.snoc` ' '))
 
 imports :: [(Text, Bool)] -> [ImportDecl]
 imports = map f
   where
-    f (n, q) = ImportDecl l (moduleName n) q False False Nothing Nothing Nothing
-    l        = SrcLoc "imports" 0 0
+    f (n, q) = ImportDecl loc (moduleName n) q False False Nothing Nothing Nothing
 
 shapeDecl :: Text -> Typed Shape -> Maybe Data
 shapeDecl t s = case s of
-    SStruct x -> Just $ Prod x doc (recDecl n (x ^. structMembers) d) (ctorDecl t x) mempty []
+    SStruct x -> Just $ Prod x doc (recDecl n (x ^. structMembers) d) (structCtor t x) mempty []
     SEnum   x -> Just $ Sum  x doc (sumDecl n (x ^. enumValues)    d) []
     _         -> Nothing
   where
@@ -289,7 +282,22 @@ data Field = Field
     , _fldUpdate :: FieldUpdate
     }
 
---structFields :: [Field]
+structCtor :: Text -> Typed Struct -> Fun
+structCtor t (structFields -> fs) = Fun c d sig fun
+  where
+    d = fromString ("'" <> Text.unpack t <> "' smart constructor.")
+
+    c = name (lowerHead t)
+    n = name t
+
+    fun = sfun loc c ps (UnGuardedRhs (RecConstr (UnQual n) us)) (BDecls [])
+    sig = typeSig c (TyCon (UnQual n)) ts
+
+    ps = map _fldParam  fs
+    ts = map _fldType   fs
+    us = map _fldUpdate fs
+
+structFields :: Typed Struct -> [Field]
 structFields = zipWith mk [1..] . OrdMap.toList . view structMembers
   where
     mk :: Int -> (Member, Typed Ref) -> Field
@@ -302,37 +310,8 @@ structFields = zipWith mk [1..] . OrdMap.toList . view structMembers
             , _fldUpdate = FieldUpdate (UnQual (field k)) (Var (UnQual p))
             }
 
-ctorDecl :: Text -> Typed Struct -> Fun
-ctorDecl t (structFields -> fs) = Fun c d sig fun
-  where
-    d = fromString ("'" <> Text.unpack t <> "' smart constructor.")
-
-    c = name (lowerHead t)
-    n = name t
-    l = SrcLoc "ctorDecl" 0 0
-
-    fun = sfun l c ps (UnGuardedRhs (RecConstr (UnQual n) us)) (BDecls [])
-    sig = typeSig c (TyCon (UnQual n)) ts
-
-    ps = map _fldParam  fs
-    ts = map _fldType fs
-    us = map _fldUpdate fs
-
 typeSig :: Name -> Type -> [Type] -> Decl
-typeSig n t = TypeSig (SrcLoc "typeSig" 0 0) [n] . foldr' (\x g -> TyFun x g) t
-
--- Enums and Structs have different facets;
--- Struct:
---  documentation is attached to a constructor
---  lenses
--- Enum:
---  documentation is attached to datatype
---  wholly exported
-
--- unsafePretty :: Pretty a => a -> LText.Text
--- unsafePretty x = either error id e
---   where
---     e = pretty x :: Either String LText.Text
+typeSig n t = TypeSig loc [n] . foldr' (\x g -> TyFun x g) t
 
 sumDecl :: Name -> OrdMap Member Text -> [Deriving] -> Decl
 sumDecl n vs = dataDecl n (sumCtor `map` OrdMap.keys vs)
@@ -341,7 +320,7 @@ recDecl :: Name -> OrdMap Member (Ref Type) -> [Deriving] -> Decl
 recDecl n ms = dataDecl n [recCtor n (fields ms)]
 
 dataDecl :: Name -> [QualConDecl] -> [Deriving] -> Decl
-dataDecl n cs = DataDecl empty (dataOrNew cs) [] n [] cs
+dataDecl n cs = DataDecl loc (dataOrNew cs) [] n [] cs
 
 sumCtor :: Member -> QualConDecl
 sumCtor m = ctor (ConDecl (branch m) [])
@@ -353,13 +332,10 @@ recCtor :: Name -> [([Name], Type)] -> QualConDecl
 recCtor n = ctor . RecDecl n
 
 ctor :: ConDecl -> QualConDecl
-ctor = QualConDecl empty [] []
+ctor = QualConDecl loc [] []
 
 tyCon :: Text -> Type
 tyCon = TyCon . UnQual . name
-
-empty :: SrcLoc
-empty = SrcLoc "empty" 0 0
 
 dataOrNew :: [QualConDecl] -> DataOrNew
 dataOrNew = \case
@@ -386,10 +362,8 @@ name = Ident . Text.unpack
 moduleName :: Text -> ModuleName
 moduleName = ModuleName . Text.unpack
 
-srcLoc :: Name -> SrcLoc
-srcLoc = \case
-    Ident  n -> SrcLoc n 0 0
-    Symbol n -> SrcLoc n 0 0
+loc :: SrcLoc
+loc = SrcLoc "" 0 0
 
 -- pretty :: (Monad m, MonadError String m) => Typed Shape -> m LText.Text
 -- pretty = prettyP
