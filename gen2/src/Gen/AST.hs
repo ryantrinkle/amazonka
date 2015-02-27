@@ -212,7 +212,7 @@ cabal v s = Cabal v s (Library undefined (typesMod n s) [] undefined)
 serviceMod :: Mod
 serviceMod = undefined
 
--- typesMod :: ModuleName -> Mod
+typesMod :: HasService s (Typed Shape) b => Text -> s -> Mod
 typesMod n s = Mod (moduleName n) es os is ts
   where
     es = extensions
