@@ -115,11 +115,12 @@ instance ToEnv ImportDecl   where toEnv = pure . toJSON . prettyPrint
 instance ToEnv Name         where toEnv = pure . toJSON . prettyPrint
 instance ToEnv Decl         where toEnv = fmap toJSON . pretty
 
-data Fun = Fun Doc Decl Decl
+data Fun = Fun Name Doc Decl Decl
 
 instance ToEnv Fun where
-    toEnv (Fun doc sig decl) = env
-        [ "comment"     .- Above 0 doc
+    toEnv (Fun n doc sig decl) = env
+        [ "name"        .- n
+        , "comment"     .- Above 0 doc
         , "signature"   .- sig
         , "declaration" .- decl
         ]
@@ -277,18 +278,16 @@ shapeDecl t s = case s of
 
 shapeDoc :: Text -> Shape a -> Doc
 shapeDoc t s = case s of
-    SStruct {} -> doc "Undocumented type." `Doc.append` ctor
+    SStruct {} -> doc "Undocumented type."
     SEnum   {} -> doc "Undocumented enumeration type."
     _          -> doc "Undocumented type."
   where
     doc d = fromMaybe d (s ^. documentation)
 
-    ctor = "\n/See:/ '" <> lowerHead t <> "'"
-
 ctorDecl :: Text -> Typed Struct -> Fun
-ctorDecl t x = Fun d sig' fun'
+ctorDecl t x = Fun c d sig' fun'
   where
-    d = fromString ("'" <> Text.unpack t <> "' constructor.")
+    d = fromString ("'" <> Text.unpack t <> "' smart constructor.")
 
     c = name (lowerHead t)
     n = name t

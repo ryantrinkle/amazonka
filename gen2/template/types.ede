@@ -32,9 +32,19 @@ module {{ name }}
   {% when "product" %}
 
 {{ shape.value.comment }}
+--
+-- /See:/ '{{ shape.value.constructor.name }}' smart constructor.
 {{ shape.value.declaration }}
 
 {{ shape.value.constructor.comment }}
+    {% if !(shape.value.lenses | empty) %}
+--
+-- The fields accessible through corresponding lenses are:
+      {% for lens in shape.value.lenses %}
+--
+-- * '{{ lens.value.name }}'
+      {% endfor %}
+    {% endif %}
 {{ shape.value.constructor.signature }}
 {{ shape.value.constructor.declaration }}
     {% for lens in shape.value.lenses %}
