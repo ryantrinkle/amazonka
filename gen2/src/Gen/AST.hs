@@ -271,18 +271,15 @@ shapeDecl t s = case s of
     SEnum   x -> Just $ Sum  x doc (sumDecl n (x ^. enumValues)    d) []
     _         -> Nothing
   where
-    doc = shapeDoc t s
-
     n = name t
     d = derive [Ident "Eq", Ident "Show"]
 
-shapeDoc :: Text -> Shape a -> Doc
-shapeDoc t s = case s of
-    SStruct {} -> doc "Undocumented type."
-    SEnum   {} -> doc "Undocumented enumeration type."
-    _          -> doc "Undocumented type."
-  where
-    doc d = fromMaybe d (s ^. documentation)
+    doc = case s of
+        SStruct {} -> f "Undocumented type."
+        SEnum   {} -> f "Undocumented enumeration type."
+        _          -> f "Undocumented type."
+      where
+        f = flip fromMaybe (s ^. documentation)
 
 ctorDecl :: Text -> Typed Struct -> Fun
 ctorDecl t x = Fun c d sig' fun'
@@ -293,13 +290,14 @@ ctorDecl t x = Fun c d sig' fun'
     n = name t
     l = SrcLoc "ctorDecl" 0 0
 
-    fs = [ FieldUpdate (UnQual (Ident "_field1")) (Var (UnQual (Ident "p1")))
-         , FieldUpdate (UnQual (Ident "_field2")) (Var (UnQual (Ident "p2")))
-         ]
+    fs = map fld (zip (OrdMap.keys (x ^. structMembers)) [1..])
+
+    fld (x, i) = FieldUpdate (UnQual (field x)) (Var (UnQual (Ident ("p" <> show i))))
 
     fun' = sfun l c params (UnGuardedRhs (RecConstr (UnQual n) fs)) (BDecls [])
 
-    sig' = typeSig c ["_field1", "_field2"]
+    sig' = typeSig c (TyCon (UnQual n))
+        . map _refShape $ OrdMap.values (x ^. structMembers)
 
     -- f = FunBind
     --  [ Match l c params Nothing
@@ -312,13 +310,8 @@ ctorDecl t x = Fun c d sig' fun'
 
     params = [Ident "p1", Ident "p2"]
 
-typeSig :: Name -> [Text] -> Decl
-typeSig n = TypeSig l [n] . f
-  where
-    l = SrcLoc "typeSig" 0 0
-
-    f []     = unit_tycon
-    f (x:xs) = foldr' (\y g -> TyFun (tyCon y) g) (tyCon x) xs
+typeSig :: Name -> Type -> [Type] -> Decl
+typeSig n t = TypeSig (SrcLoc "typeSig" 0 0) [n] . foldr' (\x g -> TyFun x g) t
 
 -- Enums and Structs have different facets;
 -- Struct:
@@ -368,8 +361,6 @@ dataOrNew = \case
 fields :: OrdMap Member (Ref Type) -> [([Name], Type)]
 fields = map (((:[]) . field) *** _refShape) . OrdMap.toList
   where
-    field :: Member -> Name
-    field (Member p _ n) = prefixed (Text.cons '_' . Text.toLower <$> p) n
 
 derive :: [Name] -> [Deriving]
 derive = map ((,[]) . UnQual)
@@ -377,6 +368,9 @@ derive = map ((,[]) . UnQual)
 prefixed :: Maybe Text -> Text -> Name
 prefixed (Just x) = name . mappend x . upperHead
 prefixed Nothing  = name . upperHead
+
+field :: Member -> Name
+field (Member p _ n) = prefixed (Text.cons '_' . Text.toLower <$> p) n
 
 name :: Text -> Name
 name = Ident . Text.unpack
