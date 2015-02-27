@@ -290,11 +290,13 @@ ctorDecl t x = Fun c d sig' fun'
     n = name t
     l = SrcLoc "ctorDecl" 0 0
 
-    fs = map fld (zip (OrdMap.keys (x ^. structMembers)) [1..])
 
-    fld (x, i) = FieldUpdate (UnQual (field x)) (Var (UnQual (Ident ("p" <> show i))))
 
-    fun' = sfun l c params (UnGuardedRhs (RecConstr (UnQual n) fs)) (BDecls [])
+    ps = zipWith ((,) . ("p" <>) . show) [1..] (OrdMap.keys (x ^. structMembers))
+
+    fld (p, x) = FieldUpdate (UnQual (field x)) (Var (UnQual p))
+
+    fun' = sfun l c (map snd ps) (UnGuardedRhs (RecConstr (UnQual n) (map fld ps))) (BDecls [])
 
     sig' = typeSig c (TyCon (UnQual n))
         . map _refShape $ OrdMap.values (x ^. structMembers)
