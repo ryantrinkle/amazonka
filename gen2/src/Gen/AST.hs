@@ -9,6 +9,7 @@
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
 {-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE ViewPatterns          #-}
 
 -- Module      : Gen.AST
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -282,13 +283,27 @@ shapeDecl t s = case s of
         f = flip fromMaybe (s ^. documentation)
 
 data Field = Field
-    { _fldParam :: Name
-    , _fldName  :: Member
-    , _fldType  :: Type
+    { _fldParam  :: Name
+    , _fldName   :: Member
+    , _fldType   :: Type
+    , _fldUpdate :: FieldUpdate
     }
 
+--structFields :: [Field]
+structFields = zipWith mk [1..] . OrdMap.toList . view structMembers
+  where
+    mk :: Int -> (Member, Typed Ref) -> Field
+    mk n (k, v) =
+        let p = Ident ("p" ++ show n)
+         in Field
+            { _fldParam  = p
+            , _fldName   = k
+            , _fldType   = _refShape v
+            , _fldUpdate = FieldUpdate (UnQual (field k)) (Var (UnQual p))
+            }
+
 ctorDecl :: Text -> Typed Struct -> Fun
-ctorDecl t x = Fun c d sig fun
+ctorDecl t (structFields -> fs) = Fun c d sig fun
   where
     d = fromString ("'" <> Text.unpack t <> "' smart constructor.")
 
@@ -296,22 +311,12 @@ ctorDecl t x = Fun c d sig fun
     n = name t
     l = SrcLoc "ctorDecl" 0 0
 
-    fun :: Decl
     fun = sfun l c ps (UnGuardedRhs (RecConstr (UnQual n) us)) (BDecls [])
-      where
-        ps = map _fldParam fields
-        us = map update fields
+    sig = typeSig c (TyCon (UnQual n)) ts
 
-    sig :: Decl
-    sig = typeSig c (TyCon (UnQual n)) (map _fldType fields)
-
-    update :: Field -> FieldUpdate
-    update f = FieldUpdate (UnQual (field (_fldName f))) (Var (UnQual (_fldParam f)))
-
-    fields :: [Field]
-    fields = zipWith p [1..] (OrdMap.toList (x ^. structMembers))
-      where
-        p n (k, v) = Field (Ident ("p" ++ show n)) k (_refShape v)
+    ps = map _fldParam  fs
+    ts = map _fldType fs
+    us = map _fldUpdate fs
 
 typeSig :: Name -> Type -> [Type] -> Decl
 typeSig n t = TypeSig (SrcLoc "typeSig" 0 0) [n] . foldr' (\x g -> TyFun x g) t
