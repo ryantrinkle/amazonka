@@ -281,8 +281,14 @@ shapeDecl t s = case s of
       where
         f = flip fromMaybe (s ^. documentation)
 
+data Field = Field
+    { _fldParam :: Name
+    , _fldName  :: Member
+    , _fldType  :: Type
+    }
+
 ctorDecl :: Text -> Typed Struct -> Fun
-ctorDecl t x = Fun c d sig' fun'
+ctorDecl t x = Fun c d sig fun
   where
     d = fromString ("'" <> Text.unpack t <> "' smart constructor.")
 
@@ -290,27 +296,22 @@ ctorDecl t x = Fun c d sig' fun'
     n = name t
     l = SrcLoc "ctorDecl" 0 0
 
+    fun :: Decl
+    fun = sfun l c ps (UnGuardedRhs (RecConstr (UnQual n) us)) (BDecls [])
+      where
+        ps = map _fldParam fields
+        us = map update fields
 
+    sig :: Decl
+    sig = typeSig c (TyCon (UnQual n)) (map _fldType fields)
 
-    ps = zipWith ((,) . ("p" <>) . show) [1..] (OrdMap.keys (x ^. structMembers))
+    update :: Field -> FieldUpdate
+    update f = FieldUpdate (UnQual (field (_fldName f))) (Var (UnQual (_fldParam f)))
 
-    fld (p, x) = FieldUpdate (UnQual (field x)) (Var (UnQual p))
-
-    fun' = sfun l c (map snd ps) (UnGuardedRhs (RecConstr (UnQual n) (map fld ps))) (BDecls [])
-
-    sig' = typeSig c (TyCon (UnQual n))
-        . map _refShape $ OrdMap.values (x ^. structMembers)
-
-    -- f = FunBind
-    --  [ Match l c params Nothing
-    --    (UnGuardedRhs (RecConstr (UnQual n)
-    --      [ FieldUpdate (UnQual (Ident "_field1")) (Var (UnQual (Ident "p1")))
-    --      , FieldUpdate (UnQual (Ident "_field2")) (Var (UnQual (Ident "p2")))
-    --      ]))
-    --    (BDecls [])
-    --  ]
-
-    params = [Ident "p1", Ident "p2"]
+    fields :: [Field]
+    fields = zipWith p [1..] (OrdMap.toList (x ^. structMembers))
+      where
+        p n (k, v) = Field (Ident ("p" ++ show n)) k (_refShape v)
 
 typeSig :: Name -> Type -> [Type] -> Decl
 typeSig n t = TypeSig (SrcLoc "typeSig" 0 0) [n] . foldr' (\x g -> TyFun x g) t
