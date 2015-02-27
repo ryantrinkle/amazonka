@@ -16,6 +16,7 @@ module Gen.Documentation
     , Below (..)
     , Blank (..)
     , Doc
+    , append
     , format
     ) where
 
@@ -25,6 +26,7 @@ import           Data.Default.Class
 import           Data.Foldable       (foldMap)
 import           Data.Jason
 import           Data.Monoid
+import           Data.String
 import           Data.Text           (Text)
 import qualified Data.Text           as Text
 import           Gen.Text
@@ -34,11 +36,14 @@ data Above a = Above Int a
 data Below a = Below Int a
 data Blank a = Blank Int a
 
-newtype Doc = Doc Pandoc
+data Doc = Doc Pandoc [Text]
     deriving (Eq)
 
 instance Show Doc where
-    show = haddock 255
+    show = Text.unpack . haddock 255
+
+instance IsString Doc where
+    fromString = Doc mempty . (:[]) . fromString
 
 instance FromJSON Doc where
     parseJSON = withText "doc" (pure . format)
@@ -53,7 +58,7 @@ instance Aeson.ToJSON (Blank Doc) where
     toJSON (Blank n d) = Aeson.String (layout n mempty mempty d)
 
 layout :: Int -> Text -> Text -> Doc -> Text
-layout n start com = pref . Text.lines . Text.pack . haddock col
+layout n start com = pref . Text.lines . haddock col
   where
     pref []     = mempty
     pref (x:xs) = begin <> x <> foldMap (mappend sep) xs
@@ -66,9 +71,18 @@ layout n start com = pref . Text.lines . Text.pack . haddock col
     pad = abs n
     col = abs (80 - pad - 4)
 
-format :: Text -> Doc
-format = Doc . readHtml def . Text.unpack
+append :: Doc -> Text -> Doc
+append (Doc p xs) x = Doc p (xs ++ [x])
 
-haddock :: Int -> Doc -> String
-haddock col (Doc p) =
-    writeHaddock (def { writerColumns = col, writerWrapText = True }) p
+format :: Text -> Doc
+format = (`Doc` []) . readHtml def . Text.unpack
+
+haddock :: Int -> Doc -> Text
+haddock col (Doc p xs) = Text.pack h <> sep <> Text.intercalate "\n" xs
+  where
+    sep | [] <- xs    = mempty
+        | p == mempty = mempty
+        | otherwise   = "\n"
+
+    h = writeHaddock (def { writerColumns = col, writerWrapText = True }) p
+
