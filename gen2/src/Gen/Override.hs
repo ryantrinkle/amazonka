@@ -322,30 +322,30 @@ solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
 
     typ :: Text -> Untyped Shape -> Type
     typ n = \case
-        SStruct _ -> AST.tyCon n
+        SStruct _ -> AST.tycon n
         SList   x -> list x
         SMap    x -> hmap x
-        SString _ -> AST.tyCon "Text"
-        SEnum   _ -> AST.tyCon n
+        SString _ -> AST.tycon "Text"
+        SEnum   _ -> AST.tycon n
         SBlob   x -> stream x
-        SBool   _ -> AST.tyCon "Bool"
+        SBool   _ -> AST.tycon "Bool"
         STime   x -> time x -- FIXME: This is dependent on the service.
-        SDouble _ -> AST.tyCon "Double"
+        SDouble _ -> AST.tycon "Double"
         SInt    x -> natural x "Int"
         SLong   x -> natural x "Integer"
       where
-        list = const (AST.tyCon "List") -- (List e a) || (List1 e a)
+        list = const (AST.tycon "List") -- (List e a) || (List1 e a)
 
-        hmap = const (AST.tyCon "Map") -- (Map k v) || (EMap e i j k v)
+        hmap = const (AST.tycon "Map") -- (Map k v) || (EMap e i j k v)
 
-        stream = const (AST.tyCon "Stream") -- figure out streaming or not
+        stream = const (AST.tycon "Stream") -- figure out streaming or not
 
-        time = AST.tyCon
+        time = AST.tycon
              . Text.pack
              . show
              . fromMaybe RFC822
              . view timeTimestampFormat
 
         natural x
-            | x ^. numMin > Just 0 = const (AST.tyCon "Natural")
-            | otherwise            = AST.tyCon
+            | x ^. numMin > Just 0 = const (AST.tycon "Natural")
+            | otherwise            = AST.tycon
