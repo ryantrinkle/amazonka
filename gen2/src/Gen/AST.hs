@@ -1,4 +1,5 @@
 {-# LANGUAGE DefaultSignatures     #-}
+{-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE LambdaCase            #-}
@@ -27,40 +28,62 @@ module Gen.AST
      , HasLibrary (..)
      , Cabal
      , cabal
-     , tyCon
+     , tycon
      ) where
 
-import           Control.Applicative    (Applicative, pure, (<$>))
-import           Control.Arrow          ((***))
+import           Control.Applicative          (Applicative, pure, (<$>))
+import           Control.Arrow                ((***))
 import           Control.Error
-import           Control.Lens           (makeClassy, makeLenses, view, (^.))
+import           Control.Lens                 (makeClassy, makeLenses, view,
+                                               (^.))
 import           Control.Monad.Except
 import           Data.Aeson
-import           Data.Aeson.Types       (Pair)
+import           Data.Aeson.Types             (Pair)
 import           Data.Bifunctor
-import           Data.Foldable          (foldr')
-import           Data.HashMap.Strict    (HashMap)
-import qualified Data.HashMap.Strict    as Map
-import           Data.List              (sort)
+import qualified Data.Foldable                as Fold
+import           Data.Hashable                (Hashable)
+import           Data.HashMap.Strict          (HashMap)
+import qualified Data.HashMap.Strict          as Map
+import           Data.HashSet                 (HashSet)
+import qualified Data.HashSet                 as Set
+import           Data.List                    (sort)
 import           Data.Maybe
-import           Data.Monoid            hiding (Sum)
-import qualified Data.SemVer            as SemVer
+import           Data.Monoid                  hiding (Sum)
+import qualified Data.SemVer                  as SemVer
 import           Data.String
-import           Data.Text              (Text)
-import qualified Data.Text              as Text
-import qualified Data.Text.Lazy         as LText
-import qualified Data.Text.Lazy.Builder as Build
+import           Data.Text                    (Text)
+import qualified Data.Text                    as Text
+import qualified Data.Text.Lazy               as LText
+import qualified Data.Text.Lazy.Builder       as Build
 import           Data.Text.Manipulate
-import           Data.Traversable       (traverse)
-import           Gen.Documentation      as Doc
+import           Data.Traversable             (traverse)
+import           Gen.Documentation            as Doc
 import           Gen.JSON
-import           Gen.Model              hiding (Name)
-import           Gen.OrdMap             (OrdMap)
-import qualified Gen.OrdMap             as OrdMap
+import           Gen.Model                    hiding (Name)
+import           Gen.OrdMap                   (OrdMap)
+import qualified Gen.OrdMap                   as OrdMap
+import           Gen.Text
 import           Gen.Types
+import           GHC.Generics                 (Generic)
 import qualified HIndent
-import           Language.Haskell.Exts  hiding (extensions, loc, name)
-import           Prelude                hiding (Enum)
+import qualified Language.Haskell.Exts        as Exts
+import           Language.Haskell.Exts.Build  (app, sfun)
+import           Language.Haskell.Exts.Pretty
+import           Language.Haskell.Exts.Syntax
+import           Prelude                      hiding (Enum)
+
+nfield :: Member -> Text
+nfield (Member p _ n) = prefixed (Text.cons '_' . Text.toLower <$> p) n
+
+nbranch :: Member -> Text
+nbranch (Member p _ n) = prefixed (Text.toUpper <$> p) n
+
+nctor :: Text -> Text
+nctor = reserved . lowerHead
+
+prefixed :: Maybe Text -> Text -> Text
+prefixed (Just x) = mappend x . upperHead
+prefixed Nothing  = upperHead
 
 pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
 pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
@@ -110,6 +133,12 @@ instance ToEnv a => ToEnv [a] where
 instance ToEnv v => ToEnv (TextMap v) where
     toEnv = fmap toJSON . traverse toEnv
 
+-- instance ToEnv v => ToEnv (HashSet v) where
+--     toEnv = fmap toJSON . traverse toEnv . Set.toList
+
+instance ToEnv v => ToEnv (OrdMap Member v) where
+    toEnv = toEnv . Map.fromList . map (first nbranch) . OrdMap.toList
+
 instance ToEnv ModuleName   where toEnv = pure . toJSON . prettyPrint
 instance ToEnv ModulePragma where toEnv = pure . toJSON . prettyPrint
 instance ToEnv ImportDecl   where toEnv = pure . toJSON . prettyPrint
@@ -126,27 +155,50 @@ instance ToEnv Fun where
         , "declaration" .- decl
         ]
 
-data Data
-    = Prod (Typed Struct) Doc Decl Fun (TextMap Fun) [Decl]
-    | Sum Enum Doc Decl [Decl]
+data Inst
+    = IToQuery
+    | IToJSON
+    | IFromJSON
+    | IToXML
+    | IFromXML
+      deriving (Eq, Show, Generic)
 
--- Sorting of types?
+instance Hashable Inst
+
+instance ToEnv Inst where
+    toEnv = pure . \case
+        IToQuery  -> "to-query"
+        IToJSON   -> "to-json"
+        IFromJSON -> "from-json"
+        IToXML    -> "to-xml"
+        IFromXML  -> "from-xml"
+
+data Data
+    = Prod (Typed Struct) Doc Decl Fun (TextMap Fun) [Inst]
+    | Sum Enum Doc Decl [Inst]
+
+fieldPairs :: OrdMap Member (Typed Ref) -> TextMap Text
+fieldPairs = Map.fromList . map f . OrdMap.toList
+  where
+    f (k, v) = (nfield k, fromMaybe (_memOriginal k) (v ^. refLocationName))
 
 instance ToEnv Data where
     toEnv = env . \case
-        Prod _ doc decl ctor ls is ->
+        Prod x doc decl ctor ls is ->
             [ "type"        .- Text.pack "product"
             , "constructor" .- ctor
             , "comment"     .- Above 0 doc
             , "declaration" .- decl
+            , "fields"      .- fieldPairs (x ^. structMembers)
             , "lenses"      .- ls
             , "instances"   .- is
             ]
-        Sum  _ doc decl is ->
-            [ "type"        .- Text.pack "sum"
-            , "comment"     .- Above 0 doc
-            , "declaration" .- decl
-            , "instances"   .- is
+        Sum x doc decl is ->
+            [ "type"         .- Text.pack "sum"
+            , "comment"      .- Above 0 doc
+            , "declaration"  .- decl
+            , "constructors" .- view enumValues x
+            , "instances"    .- is
             ]
 
 data Mod = Mod ModuleName [ModulePragma] [ModulePragma] [ImportDecl] (TextMap Data)
@@ -240,7 +292,7 @@ typesMod n s = Mod (moduleName n) es os is ts
 
     ts = Map.fromList . mapMaybe f $ Map.toList (s ^. svcShapes)
       where
-        f (n, s) = (n,) <$> shapeDecl n s
+        f (n, s) = (n,) <$> shapeData n s
 
 operationMod :: Mod
 operationMod = undefined
@@ -259,21 +311,32 @@ imports = map f
   where
     f (n, q) = ImportDecl loc (moduleName n) q False False Nothing Nothing Nothing
 
-shapeDecl :: Text -> Typed Shape -> Maybe Data
-shapeDecl t s = case s of
-    SStruct x -> Just $ Prod x doc (recDecl n (x ^. structMembers) d) (structCtor t x) mempty []
-    SEnum   x -> Just $ Sum  x doc (sumDecl n (x ^. enumValues)    d) []
+shapeData :: Text -> Typed Shape -> Maybe Data
+shapeData t s = case s of
+    SStruct x -> Just (prod x)
+    SEnum   x -> Just (sum  x)
     _         -> Nothing
   where
+    prod x =
+        let ctor = (structCtor t x)
+            decl = recDecl n (x ^. structMembers) d
+         in Prod x (doc "Undocumented type.") decl ctor mempty is
+
+    sum x =
+        let decl = sumDecl n (x ^. enumValues) d
+         in Sum x (doc "Undocumented enumeration.") decl is
+
+    doc = flip fromMaybe (s ^. documentation)
+
+    is = [ IToQuery
+         , IFromJSON
+         , IToJSON
+         , IFromXML
+         , IToXML
+         ]
+
     n = name t
     d = derive [Ident "Eq", Ident "Show"]
-
-    doc = case s of
-        SStruct {} -> f "Undocumented type."
-        SEnum   {} -> f "Undocumented enumeration type."
-        _          -> f "Undocumented type."
-      where
-        f = flip fromMaybe (s ^. documentation)
 
 data Field = Field
     { _fldParam  :: Name
@@ -287,11 +350,11 @@ structCtor t (structFields -> fs) = Fun c d sig fun
   where
     d = fromString ("'" <> Text.unpack t <> "' smart constructor.")
 
-    c = name (lowerHead t)
+    c = name (nctor t)
     n = name t
 
     fun = sfun loc c ps (UnGuardedRhs (RecConstr (UnQual n) us)) (BDecls [])
-    sig = typeSig c (TyCon (UnQual n)) ts
+    sig = typeSig c (tycon t) ts
 
     ps = map _fldParam  fs
     ts = map _fldType   fs
@@ -307,11 +370,11 @@ structFields = zipWith mk [1..] . OrdMap.toList . view structMembers
             { _fldParam  = p
             , _fldName   = k
             , _fldType   = _refShape v
-            , _fldUpdate = FieldUpdate (UnQual (field k)) (Var (UnQual p))
+            , _fldUpdate = FieldUpdate (UnQual (name $ nfield k)) (Var (UnQual p))
             }
 
 typeSig :: Name -> Type -> [Type] -> Decl
-typeSig n t = TypeSig loc [n] . foldr' (\x g -> TyFun x g) t
+typeSig n t = TypeSig loc [n] . Fold.foldr' (\x g -> TyFun x g) t
 
 sumDecl :: Name -> OrdMap Member Text -> [Deriving] -> Decl
 sumDecl n vs = dataDecl n (sumCtor `map` OrdMap.keys vs)
@@ -323,10 +386,7 @@ dataDecl :: Name -> [QualConDecl] -> [Deriving] -> Decl
 dataDecl n cs = DataDecl loc (dataOrNew cs) [] n [] cs
 
 sumCtor :: Member -> QualConDecl
-sumCtor m = ctor (ConDecl (branch m) [])
-  where
-    branch :: Member -> Name
-    branch (Member p _ n) = prefixed (Text.toUpper <$> p) n
+sumCtor m = ctor (ConDecl (name $ nbranch m) [])
 
 recCtor :: Name -> [([Name], Type)] -> QualConDecl
 recCtor n = ctor . RecDecl n
@@ -334,8 +394,14 @@ recCtor n = ctor . RecDecl n
 ctor :: ConDecl -> QualConDecl
 ctor = QualConDecl loc [] []
 
-tyCon :: Text -> Type
-tyCon = TyCon . UnQual . name
+pcon :: Text -> Pat
+pcon n = PApp (unqual n) []
+
+econ :: Text -> Exp
+econ = Con . unqual
+
+tycon :: Text -> Type
+tycon = TyCon . UnQual . name
 
 dataOrNew :: [QualConDecl] -> DataOrNew
 dataOrNew = \case
@@ -343,18 +409,34 @@ dataOrNew = \case
     _                                   -> DataType
 
 fields :: OrdMap Member (Ref Type) -> [([Name], Type)]
-fields = map (((:[]) . field) *** _refShape) . OrdMap.toList
-  where
+fields = map (((:[]) . name . nfield) *** _refShape) . OrdMap.toList
 
 derive :: [Name] -> [Deriving]
 derive = map ((,[]) . UnQual)
 
-prefixed :: Maybe Text -> Text -> Name
-prefixed (Just x) = name . mappend x . upperHead
-prefixed Nothing  = name . upperHead
+alt :: Pat -> Exp -> Alt
+alt = Exts.alt loc
 
-field :: Member -> Name
-field (Member p _ n) = prefixed (Text.cons '_' . Text.toLower <$> p) n
+pbind :: Pat -> Exp -> Decl
+pbind = Exts.patBind loc
+
+op :: Text -> Exp -> Exp -> Exp
+op o x y = Exts.infixApp x (Exts.op . Exts.sym $ Text.unpack o) y
+
+pstr :: Text -> Pat
+pstr = Exts.strP . Text.unpack
+
+estr :: Text -> Exp
+estr = Exts.strE . Text.unpack
+
+var :: Text -> Exp
+var = Exts.var . name
+
+pvar :: Text -> Pat
+pvar = Exts.pvar . name
+
+unqual :: Text -> QName
+unqual = UnQual . name
 
 name :: Text -> Name
 name = Ident . Text.unpack
@@ -364,67 +446,3 @@ moduleName = ModuleName . Text.unpack
 
 loc :: SrcLoc
 loc = SrcLoc "" 0 0
-
--- pretty :: (Monad m, MonadError String m) => Typed Shape -> m LText.Text
--- pretty = prettyP
-
--- transform :: Text -> Prefix Shape -> Maybe Decl
--- transform (Text.unpack -> name) p =
---     case p ^. prefItem of
---         SStruct x -> Just (struct x)
---         _         -> Nothing
---   where
---     struct :: Struct -> Decl
---     struct Struct{..} = record (fields _structMembers) (derive ["Eq", "Show"])
-
---     record :: [([Name], Type)] -> [Deriving] -> Decl
---     record fs = DataDecl l s [] n [] ctor
---       where
---         ctor = [QualConDecl (SrcLoc name 0 10) [] [] (RecDecl n fs)]
-
---         s | [_] <- fs = NewType
---           | otherwise = DataType
-
---     fields :: OrdMap Member Ref -> [([Name], Type)]
---     fields = map f . OrdMap.toList
---       where
---         f (Text.unpack . _memName -> k, Text.unpack . _refShape -> v) =
---             ([Ident k], TyCon (UnQual (Ident v)))
-
---     l = SrcLoc name 0 0
---     n = Ident name
-
--- class AST a where
---     transform :: Text -> a -> Either String Decl
-
--- instance AST (Prefix Shape) where
---     transform n p =
---         case p ^. prefItem of
---             -- SList   x -> f x
---             -- SMap    x -> f x
---             SStruct x -> f x
---             -- SString x -> f x
---             -- SEnum   x -> f x
---             -- SBlob   x -> f x
---             -- SBool   x -> f x
---             -- STime   x -> f x
---             -- SInt    x -> f x
---             -- SDouble x -> f x
---             -- SLong   x -> f x
---           where
---             f x = transform n (p & prefItem .~ x)
-
--- instance AST (Prefix Struct) where
---     transform n p =
-
-
--- instance AST (Prefix List) where
--- instance AST (Prefix Map) where
--- instance AST (Prefix Chars) where
--- instance AST (Prefix Enum) where
--- instance AST (Prefix Blob) where
--- instance AST (Prefix Boolean) where
--- instance AST (Prefix Time) where
--- instance AST (Prefix (Number Int)) where
--- instance AST (Prefix (Number Double)) where
--- instance AST (Prefix (Number Integer)) where

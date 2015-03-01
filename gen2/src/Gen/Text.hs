@@ -13,8 +13,10 @@
 module Gen.Text where
 
 import           Control.Error
+import qualified Data.CaseInsensitive  as CI
 import           Data.Char
 import           Data.Foldable         as Fold
+import qualified Data.HashSet          as Set
 import           Data.Monoid
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
@@ -22,6 +24,8 @@ import           Data.Text.ICU         (Regex)
 import           Data.Text.ICU.Replace (Replace)
 import qualified Data.Text.ICU.Replace as RE
 import           Data.Text.Manipulate
+import           Text.Parsec.Language  (haskellDef)
+import           Text.Parsec.Token     (reservedNames)
 
 asText :: (Text -> Text) -> String -> String
 asText f = Text.unpack . f . Text.pack
@@ -49,6 +53,26 @@ stripSuffix p t = Text.strip . fromMaybe t $ p `Text.stripSuffix` t
 --     ini xs = fromMaybe xs (initMay xs)
 
 --     sep = Text.replicate n (Text.singleton ' ')
+
+reserved :: Text -> Text
+reserved x
+    | CI.mk x `Set.member` xs = x <> "'"
+    | otherwise               = x
+  where
+    xs = Set.fromList
+       . map (CI.mk . Text.pack)
+       $ [ "head"
+         , "tail"
+         , "delete"
+         , "filter"
+         , "true"
+         , "false"
+         , "map"
+         , "mape"
+         , "object"
+         , "list"
+         , "list1"
+         ] ++ reservedNames haskellDef
 
 constructor :: Text -> Text
 constructor = stripSuffix "_" . acronym . Text.concat . map recase . splitWords

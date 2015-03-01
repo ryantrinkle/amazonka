@@ -50,12 +50,11 @@ instance ToJSON {{ shape.key }} where
 instance FromXML {{ shape.key }} where
     parseXML x = {{ shape.key }}
       {% for field in shape.value.fields %}
-        {% include "applicative.ede" %} x .@ "{{ field.value }}"
+        {% include "applicative.ede" %} .@ "{{ field.value }}"
       {% endfor %}
   {% when "to-xml" %}
 
 instance ToXML {{ shape.key }} where
-    toXMLRoot = namespaced ns "{{ shape.key }}"
     toXML {{ shape.key }}{..} = nodes "{{ shape.key }}"
       {% for field in shape.value.fields %}
         {% include "list.ede" %} "{{ field.value }}" =@ {{ field.key }}
