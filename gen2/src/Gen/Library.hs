@@ -66,7 +66,7 @@ tree :: (Applicative m, MonadError String m)
      => FilePath
      -> Templates Protocol
      -> SemVer.Version
-     -> Service (Typed Shape) (Untyped Ref)
+     -> Service (Derived Shape) (Untyped Ref)
      -> m (AnchoredDirTree LText.Text)
 tree d t v s = do
     let c = AST.cabal v s

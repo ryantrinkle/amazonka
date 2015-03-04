@@ -26,7 +26,9 @@ import           Control.Lens
 import           Control.Monad
 import           Data.Bifunctor
 import           Data.CaseInsensitive (CI)
+import           Data.Foldable        (foldl')
 import           Data.HashMap.Strict  (HashMap)
+import qualified Data.HashSet         as Set
 -- import qualified Data.HashMap.Strict  as Map
 import           Data.HashSet         (HashSet)
 import           Data.Jason
@@ -119,7 +121,8 @@ deriveFromJSON camel ''XMLNS
 -- | A reference to a 'Shape', plus any additional annotations
 -- specific to the point at which the type is de/serialised.
 data Ref a = Ref
-    { _refShape         :: !a
+    { _refAnn           :: a
+    , _refShape         :: !Text
     , _refDocumentation :: Maybe Doc
     , _refLocation      :: Maybe Location
     , _refLocationName  :: Maybe Text
@@ -133,8 +136,8 @@ data Ref a = Ref
 
 makeLenses ''Ref
 
-instance FromJSON (Ref Text) where
-    parseJSON = withObject "ref" $ \o -> Ref
+instance FromJSON (Ref ()) where
+    parseJSON = withObject "ref" $ \o -> Ref ()
         <$> o .:  "shape"
         <*> o .:? "documentation"
         <*> o .:? "location"
@@ -155,7 +158,7 @@ data List a = List
     , _listLocationName  :: Maybe Text
     } deriving (Eq, Show)
 
-instance FromJSON (List Text) where
+instance FromJSON (List ()) where
     parseJSON = withObject "list" $ \o -> List
         <$> o .:? "documentation"
         <*> o .:  "member"
@@ -173,7 +176,7 @@ data Map a = Map
     , _mapFlattened     :: Maybe Bool
     } deriving (Eq, Show)
 
-instance FromJSON (Map Text) where
+instance FromJSON (Map ()) where
     parseJSON = withObject "map" $ \o -> Map
         <$> o .:? "documentation"
         <*> o .:  "key"
@@ -192,7 +195,7 @@ data Struct a = Struct
     , _structMembers       :: OrdMap Member (Ref a)
     } deriving (Eq, Show)
 
-instance FromJSON (Struct Text) where
+instance FromJSON (Struct ()) where
     parseJSON = withObject "structure" $ \o -> Struct
         <$> o .:? "documentation"
         <*> o .:? "required" .!= mempty
@@ -283,7 +286,7 @@ data Shape a
 
 makePrisms ''Shape
 
-instance FromJSON (Shape Text) where
+instance FromJSON (Shape ()) where
     parseJSON = withObject "shape" $ \o -> do
         let f g = g <$> parseJSON (Object o)
         o .: "type" >>= \case
@@ -332,6 +335,23 @@ documentation f = \case
     SDouble x -> SDouble <$> numDocumentation    f x
     SLong   x -> SLong   <$> numDocumentation    f x
 
+constraints :: Derived Shape -> HashSet Constraint
+constraints s =
+    case s of
+        
+    SString x -> SString <$> charsDocumentation  f x
+    SEnum   x -> SEnum   <$> enumDocumentation   f x
+    SBlob   x -> SBlob   <$> blobDocumentation   f x
+    SBool   x -> SBool   <$> boolDocumentation   f x
+    STime   x -> STime   <$> timeDocumentation   f x
+    SInt    x -> SInt    <$> numDocumentation    f x
+    SDouble x -> SDouble <$> numDocumentation    f x
+    SLong   x -> SLong   <$> numDocumentation    f x
+
+
+ foldl' Set.intersection mempty
+    . toListOf (references . refAnn . derSet)
+
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP
     { _httpMethod     :: !Method
@@ -354,7 +374,7 @@ data Operation a = Operation
 
 makeLenses ''Operation
 
-instance FromJSON (Operation (Ref Text)) where
+instance FromJSON (Operation (Ref ())) where
     parseJSON = withObject "operation" $ \o -> Operation
         <$> o .:  "name"
         <*> o .:? "documentation"

@@ -156,7 +156,7 @@ main = runScript $ do
 
     say "Completed" (Text.pack $ show (length (o ^. optModels)) ++ " models.")
 
-model :: FilePath -> FilePath -> Script (Service (Typed Shape) (Untyped Ref))
+model :: FilePath -> FilePath -> Script (Service (Derived Shape) (Untyped Ref))
 model d o = do
     say "Load Model" (encode d)
     v <- version d

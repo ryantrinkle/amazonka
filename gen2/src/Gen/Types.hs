@@ -49,8 +49,38 @@ import           GHC.Generics                 (Generic)
 import           Language.Haskell.Exts.Syntax (Type)
 import           Text.EDE                     (Template)
 
-type Untyped (f :: * -> *) = f Text
+data Constraint
+    = CEq
+    | COrd
+    | CRead
+    | CShow
+    | CGeneric
+    | CEnum
+    | CNum
+    | CIntegral
+    | CReal
+    | CRealFrac
+    | CRealFloat
+    | CMonoid
+    | CSemigroup
+    | CIsString
+      deriving (Eq, Ord, Show, Generic)
+
+instance Hashable Constraint
+
+data Derive = Derive
+    { _derType :: Type
+    , _derSet  :: HashSet Constraint
+    }
+
+makeLenses ''Derive
+
+-- derive :: HashSet Constraint -> Type -> Derive
+-- derive = undefined
+
+type Untyped (f :: * -> *) = f ()
 type Typed   (f :: * -> *) = f Type
+type Derived (f :: * -> *) = f Derive
 
 type TextMap = HashMap Text
 type TextSet = HashSet Text

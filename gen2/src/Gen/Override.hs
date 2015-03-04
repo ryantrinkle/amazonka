@@ -29,6 +29,7 @@ import           Data.Bifunctor
 import           Data.CaseInsensitive       (CI)
 import qualified Data.CaseInsensitive       as CI
 import           Data.Default.Class
+import           Data.Foldable              (foldl')
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as Map
 import           Data.HashSet               (HashSet)
@@ -52,7 +53,7 @@ type PS = HashMap (CI Text) (HashSet (CI Text))
 
 service :: (Functor m, MonadError String m)
         => Service (Untyped Shape) (Untyped Ref)
-        -> m (Service (Typed Shape) (Untyped Ref))
+        -> m (Service (Derived Shape) (Untyped Ref))
 service s = do
     -- 1. Override rules are applied to the raw AST.
     let os = override (s ^. ovOverrides) (s ^. svcShapes)
@@ -66,14 +67,17 @@ service s = do
 
     -- 4. The textual references in operations and shapes are replaced
     --    with actual Haskell types.
-    ts <- solve ps
+    ts <- types ps
 
-    -- 5. Substitution is done to replace the operation's input/output
+    -- 5. Solve the constraints for the annotated types.
+    cs <- constraints' ts
+
+    -- 6. Substitution is done to replace the operation's input/output
     --    references with actual shapes, and any non-shared shapes
     --    are then removed from the service's shape map.
 --    return $! subst sh (s & svcShapes .~ ts)
 
-    return (s { _svcShapes = ts })
+    return (s { _svcShapes = cs })
 
 -- -- | Replace operation input/output references with their respective shapes,
 -- -- removing the shape from the service if they are not shared.
@@ -298,15 +302,15 @@ shared oo ss = occur (execState check mempty)
     count n  = modify (Map.insertWith (+) n 1)
 
 -- | Replace the untyped 'Text' references with actual Haskell 'Type's.
-solve :: (Functor m, MonadError String m)
+types :: (Functor m, MonadError String m)
       => TextMap (Untyped Shape)
       -> m (TextMap (Typed Shape))
-solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
+types ss = evalStateT (traverse (traverseOf references go) ss) mempty
   where
     go :: MonadError String m
        => Untyped Ref
        -> StateT (TextMap Type) m (Typed Ref)
-    go r = flip (set refShape) r `liftM` memo (r ^. refShape)
+    go r = flip (set refAnn) r `liftM` memo (r ^. refShape)
 
     memo :: MonadError String m
          => Text
@@ -317,11 +321,14 @@ solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
             Just t  -> return t
             Nothing ->
                 case Map.lookup n ss of
-                    Just (typ n -> t) -> modify (Map.insert n t) >> return t
-                    Nothing           -> throwError $ "Missing Shape " ++ show n
+                    Just (typeOf n -> t) -> modify (Map.insert n t) >> return t
+                    Nothing              -> throwError $ "Missing Shape " ++ show n
 
-    typ :: Text -> Untyped Shape -> Type
-    typ n = \case
+    -- derive :: Text -> Typed Shape -> Derive
+    -- derive n = undefined
+
+    typeOf :: Text -> Untyped Shape -> Type
+    typeOf n = \case
         SStruct _ -> AST.tycon n
         SList   x -> list x
         SMap    x -> hmap x
@@ -349,3 +356,47 @@ solve ss = evalStateT (traverse (traverseOf references go) ss) mempty
         natural x
             | x ^. numMin > Just 0 = const (AST.tycon "Natural")
             | otherwise            = AST.tycon
+
+constraints' :: (Functor m, MonadError String m)
+             => TextMap (Typed Shape)
+             -> m (TextMap (Derived Shape))
+constraints' ss = evalStateT (Map.traverseWithKey go ss) mempty
+  where
+    go :: (Functor m, MonadError String m)
+       => Text
+       -> Typed Shape
+       -> StateT (TextMap (Derived Shape)) m (Derived Shape)
+    go n s = do
+        m <- gets (Map.lookup n)
+        case m of
+            Just s' -> return s'
+            Nothing -> do
+                s' <- traverseOf references ref s
+                modify (Map.insert n s')
+                return s'
+
+    ref :: (Functor m, MonadError String m)
+        => Typed Ref
+        -> StateT (TextMap (Derived Shape)) m (Derived Ref)
+    ref r = do
+        let n = r ^. refShape
+        m <- gets (Map.lookup n)
+        s <- case m of
+                 Just s  -> return s
+                 Nothing -> do
+                     case Map.lookup n ss of
+                         Just s  -> go n s
+                         Nothing -> throwError $ "Missing Shape " ++ show n
+        return $! r & refAnn .~ derive (constraints s) r
+
+    -- How to tell if the ref is required?
+    -- Pass in the shape's required list?
+
+    derive :: HashSet Constraint -- The constraints assigned to the ref's actual shape.
+           -> Typed Ref
+           -> Derive
+    derive x r = Derive (r ^. refAnn) (x `Set.intersection` y)
+      where
+--        y | r ^. refRequired = mempty
+        y | r ^. refStreaming = mempty
+          | otherwise         =  Set.fromList [CEq, CRead, CShow]
