@@ -161,7 +161,7 @@ data Inst
     | IFromJSON
     | IToXML
     | IFromXML
-      deriving (Eq, Show, Generic)
+      deriving (Eq, Ord, Show, Generic)
 
 instance Hashable Inst
 
@@ -173,11 +173,20 @@ instance ToEnv Inst where
         IToXML    -> "to-xml"
         IFromXML  -> "from-xml"
 
+protoInsts :: Protocol -> [Inst]
+protoInsts = sort . \case
+    JSON     -> [IFromJSON, IToJSON]
+    RestJSON -> [IFromJSON, IToJSON]
+    XML      -> [IFromXML, IToXML]
+    RestXML  -> [IFromXML, IToXML]
+    Query    -> [IToQuery, IFromXML]
+    EC2      -> [IToQuery, IFromXML]
+
 data Data
-    = Prod (Typed Struct) Doc Decl Fun (TextMap Fun) [Inst]
+    = Prod (Derived Struct) Doc Decl Fun (TextMap Fun) [Inst]
     | Sum Enum Doc Decl [Inst]
 
-fieldPairs :: OrdMap Member (Typed Ref) -> TextMap Text
+fieldPairs :: OrdMap Member (Derived Ref) -> TextMap Text
 fieldPairs = Map.fromList . map f . OrdMap.toList
   where
     f (k, v) = (nfield k, fromMaybe (_memOriginal k) (v ^. refLocationName))
@@ -231,7 +240,7 @@ makeClassy ''Library
 
 data Cabal = Cabal
     { _cblVersion :: SemVer.Version
-    , _cblService :: Service (Typed Shape) (Untyped Ref)
+    , _cblService :: Service (Derived Shape) (Untyped Ref)
     , _cblLibrary :: Library
     }
 
@@ -240,7 +249,7 @@ makeLenses ''Cabal
 instance HasMetadata Cabal where
     metadata = cblService . svcMetadata
 
-instance HasService Cabal (Typed Shape) (Untyped Ref) where
+instance HasService Cabal (Derived Shape) (Untyped Ref) where
     service = cblService
 
 instance HasLibrary Cabal where
@@ -256,15 +265,15 @@ instance ToEnv Cabal where
 --       , "modules"          .- view cblModules c
        ]
 
-cabal :: SemVer.Version -> Service (Typed Shape) (Untyped Ref) -> Cabal
-cabal v s = Cabal v s (Library undefined (typesMod n s) [] undefined)
+cabal :: SemVer.Version -> Service (Derived Shape) (Untyped Ref) -> Cabal
+cabal v s = Cabal v s (Library serviceMod (typesMod n s) [] waitersMod)
   where
     n = s ^. svcAbbrev
 
 serviceMod :: Mod
-serviceMod = undefined
+serviceMod = error "serviceMod"
 
-typesMod :: HasService s (Typed Shape) b => Text -> s -> Mod
+typesMod :: Text -> Service (Derived Shape) b -> Mod
 typesMod n s = Mod (moduleName n) es os is ts
   where
     es = extensions
@@ -292,13 +301,15 @@ typesMod n s = Mod (moduleName n) es os is ts
 
     ts = Map.fromList . mapMaybe f $ Map.toList (s ^. svcShapes)
       where
-        f (n, s) = (n,) <$> shapeData n s
+        f (n, s) = (n,) <$> shapeData insts n s
+
+        insts = protoInsts (s ^. metaProtocol)
 
 operationMod :: Mod
-operationMod = undefined
+operationMod = error "operationMod"
 
 waitersMod :: Mod
-waitersMod = undefined
+waitersMod = error "waitersMod"
 
 extensions :: [Text] -> [ModulePragma]
 extensions = map (LanguagePragma loc . (:[]) . name) . sort
@@ -311,8 +322,8 @@ imports = map f
   where
     f (n, q) = ImportDecl loc (moduleName n) q False False Nothing Nothing Nothing
 
-shapeData :: Text -> Typed Shape -> Maybe Data
-shapeData t s = case s of
+shapeData :: [Inst] -> Text -> Derived Shape -> Maybe Data
+shapeData is t s = case s of
     SStruct x -> Just (prod x)
     SEnum   x -> Just (sum  x)
     _         -> Nothing
@@ -328,15 +339,8 @@ shapeData t s = case s of
 
     doc = flip fromMaybe (s ^. documentation)
 
-    is = [ IToQuery
-         , IFromJSON
-         , IToJSON
-         , IFromXML
-         , IToXML
-         ]
-
     n = name t
-    d = derive [Ident "Eq", Ident "Show"]
+    d = map ((,[]) . UnQual . Ident . show) (Set.toList (constraints s))
 
 data Field = Field
     { _fldParam  :: Name
@@ -345,7 +349,7 @@ data Field = Field
     , _fldUpdate :: FieldUpdate
     }
 
-structCtor :: Text -> Typed Struct -> Fun
+structCtor :: Text -> Derived Struct -> Fun
 structCtor t (structFields -> fs) = Fun c d sig fun
   where
     d = fromString ("'" <> Text.unpack t <> "' smart constructor.")
@@ -360,16 +364,16 @@ structCtor t (structFields -> fs) = Fun c d sig fun
     ts = map _fldType   fs
     us = map _fldUpdate fs
 
-structFields :: Typed Struct -> [Field]
+structFields :: Derived Struct -> [Field]
 structFields = zipWith mk [1..] . OrdMap.toList . view structMembers
   where
-    mk :: Int -> (Member, Typed Ref) -> Field
+    mk :: Int -> (Member, Derived Ref) -> Field
     mk n (k, v) =
         let p = Ident ("p" ++ show n)
          in Field
             { _fldParam  = p
             , _fldName   = k
-            , _fldType   = _refShape v
+            , _fldType   = v ^. refAnn . derType
             , _fldUpdate = FieldUpdate (UnQual (name $ nfield k)) (Var (UnQual p))
             }
 
@@ -379,7 +383,7 @@ typeSig n t = TypeSig loc [n] . Fold.foldr' (\x g -> TyFun x g) t
 sumDecl :: Name -> OrdMap Member Text -> [Deriving] -> Decl
 sumDecl n vs = dataDecl n (sumCtor `map` OrdMap.keys vs)
 
-recDecl :: Name -> OrdMap Member (Ref Type) -> [Deriving] -> Decl
+recDecl :: Name -> OrdMap Member (Derived Ref) -> [Deriving] -> Decl
 recDecl n ms = dataDecl n [recCtor n (fields ms)]
 
 dataDecl :: Name -> [QualConDecl] -> [Deriving] -> Decl
@@ -408,11 +412,9 @@ dataOrNew = \case
     [QualConDecl _ _ _ (RecDecl _ [_])] -> NewType
     _                                   -> DataType
 
-fields :: OrdMap Member (Ref Type) -> [([Name], Type)]
-fields = map (((:[]) . name . nfield) *** _refShape) . OrdMap.toList
-
-derive :: [Name] -> [Deriving]
-derive = map ((,[]) . UnQual)
+fields :: OrdMap Member (Derived Ref) -> [([Name], Type)]
+fields = map (((:[]) . name . nfield) *** view (refAnn . derType))
+    . OrdMap.toList
 
 alt :: Pat -> Exp -> Alt
 alt = Exts.alt loc
