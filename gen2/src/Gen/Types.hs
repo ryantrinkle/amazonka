@@ -58,13 +58,6 @@ type TextSet = HashSet Text
 encode :: Path.FilePath -> Text
 encode = either id id . Path.toText
 
--- data Derive = Derive
---     { _derType :: Type
---     , _derSet  :: HashSet Constraint
---     }
-
--- makeLenses ''Derive
-
 data Constraint
     = CEq
     | COrd
@@ -91,20 +84,6 @@ data Derived a = Derived
     { derived     :: Typed a
     , constraints :: HashSet Constraint
     }
-
--- data Pre a = Pre
---     { _preKey  :: Text
---     , _preItem :: a
---     } deriving (Eq, Show)
-
--- makeLenses ''Pre
---
--- data Name a = Name
---     { _nameKey  :: Text
---     , _nameItem :: a
---     } deriving (Eq, Show)
-
--- makeLenses ''Name
 
 data Member = Member
     { _memPrefix   :: Maybe Text
