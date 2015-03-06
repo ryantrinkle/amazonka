@@ -335,22 +335,29 @@ documentation f = \case
     SDouble x -> SDouble <$> numDocumentation    f x
     SLong   x -> SLong   <$> numDocumentation    f x
 
-constraints :: Derived Shape -> HashSet Constraint
-constraints s =
-    case s of
-        
-    SString x -> SString <$> charsDocumentation  f x
-    SEnum   x -> SEnum   <$> enumDocumentation   f x
-    SBlob   x -> SBlob   <$> blobDocumentation   f x
-    SBool   x -> SBool   <$> boolDocumentation   f x
-    STime   x -> STime   <$> timeDocumentation   f x
-    SInt    x -> SInt    <$> numDocumentation    f x
-    SDouble x -> SDouble <$> numDocumentation    f x
-    SLong   x -> SLong   <$> numDocumentation    f x
+calculate :: Shape a -> HashSet Constraint
+calculate = \case
+    SString _ -> Set.fromList [CEq, COrd, CRead, CShow, CGeneric, CIsString]
+    SEnum   _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CGeneric, CIsString]
+    SBlob   _ -> Set.fromList [CGeneric]
+    SBool   _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CGeneric]
+    STime   _ -> Set.fromList [CEq, COrd, CRead, CShow, CGeneric]
+    SInt    _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
+    SDouble _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CReal, CRealFrac, CRealFloat]
+    SLong   _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
 
+precalculated :: Derived Shape -> HashSet Constraint
+precalculated s = case s of
+    SList   _ -> go s
+    SMap    _ -> go s
+    SStruct _ -> go s
+    _         -> calculate s
+  where
+    go = foldl' Set.intersection mempty
+       . toListOf (references . refAnn . derSet)
 
- foldl' Set.intersection mempty
-    . toListOf (references . refAnn . derSet)
+ -- foldl' Set.intersection mempty
+ --    . toListOf (references . refAnn . derSet)
 
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP
