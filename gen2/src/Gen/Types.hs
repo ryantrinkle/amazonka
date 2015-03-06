@@ -49,6 +49,22 @@ import           GHC.Generics                 (Generic)
 import           Language.Haskell.Exts.Syntax (Type)
 import           Text.EDE                     (Template)
 
+type Untyped (f :: * -> *) = f ()
+type Typed   (f :: * -> *) = f Type
+
+type TextMap = HashMap Text
+type TextSet = HashSet Text
+
+encode :: Path.FilePath -> Text
+encode = either id id . Path.toText
+
+-- data Derive = Derive
+--     { _derType :: Type
+--     , _derSet  :: HashSet Constraint
+--     }
+
+-- makeLenses ''Derive
+
 data Constraint
     = CEq
     | COrd
@@ -68,25 +84,13 @@ data Constraint
 
 instance Hashable Constraint
 
-data Derive = Derive
-    { _derType :: Type
-    , _derSet  :: HashSet Constraint
+constraint :: Constraint -> Text
+constraint = Text.pack . drop 1 . show
+
+data Derived a = Derived
+    { derived     :: Typed a
+    , constraints :: HashSet Constraint
     }
-
-makeLenses ''Derive
-
--- derive :: HashSet Constraint -> Type -> Derive
--- derive = undefined
-
-type Untyped (f :: * -> *) = f ()
-type Typed   (f :: * -> *) = f Type
-type Derived (f :: * -> *) = f Derive
-
-type TextMap = HashMap Text
-type TextSet = HashSet Text
-
-encode :: Path.FilePath -> Text
-encode = either id id . Path.toText
 
 -- data Pre a = Pre
 --     { _preKey  :: Text

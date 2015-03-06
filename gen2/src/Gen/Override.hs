@@ -46,10 +46,9 @@ import qualified Gen.OrdMap                 as OrdMap
 import           Gen.Text                   (safeHead)
 import           Gen.Types                  hiding (override)
 import           Language.Haskell.Exts      (Type)
+import           System.IO.Unsafe
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
-
--- Prefixing needs to happen
 
 service :: (Functor m, MonadError String m)
         => Service (Untyped Shape) (Untyped Ref)
@@ -360,43 +359,92 @@ types ss = evalStateT (traverse (traverseOf references go) ss) mempty
 constraints' :: (Functor m, MonadError String m)
              => TextMap (Typed Shape)
              -> m (TextMap (Derived Shape))
-constraints' ss = evalStateT (Map.traverseWithKey go ss) mempty
+constraints' ss = execStateT (traverse go (Map.keys ss)) mempty
   where
     go :: (Functor m, MonadError String m)
        => Text
-       -> Typed Shape
        -> StateT (TextMap (Derived Shape)) m (Derived Shape)
-    go n s = do
+    go n = do
         m <- gets (Map.lookup n)
         case m of
-            Just s' -> return s'
-            Nothing -> do
-                s' <- traverseOf references ref s
-                modify (Map.insert n s')
-                return s'
+            Just s -> return s
+            Nothing ->
+                case Map.lookup n ss of
+                    Nothing -> throwError $ "Missing Shape " ++ Text.unpack n
+                    Just  s -> do
+                        d <- derive s
+                        modify (Map.insert n d)
+                        return d
+
+    derive :: (Functor m, MonadError String m)
+           => Typed Shape
+           -> StateT (TextMap (Derived Shape)) m (Derived Shape)
+    derive s = Derived s <$> case s of
+        SString {} -> pure $ Set.fromList [CEq, COrd, CRead, CShow, CGeneric, CIsString]
+        SEnum   {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CGeneric, CIsString]
+        SBlob   {} -> pure $ Set.fromList [CGeneric]
+        SBool   {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CGeneric]
+        STime   {} -> pure $ Set.fromList [CEq, COrd, CRead, CShow, CGeneric]
+        SInt    {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
+        SDouble {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CReal, CRealFrac, CRealFloat]
+        SLong   {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
+        _          -> do
+            cs <- traverse ref (toListOf references s)
+            return $! case cs of
+                x:xs -> foldl' Set.intersection x xs
+                _    -> mempty
 
     ref :: (Functor m, MonadError String m)
         => Typed Ref
-        -> StateT (TextMap (Derived Shape)) m (Derived Ref)
-    ref r = do
-        let n = r ^. refShape
-        m <- gets (Map.lookup n)
-        s <- case m of
-                 Just s  -> return s
-                 Nothing -> do
-                     case Map.lookup n ss of
-                         Just s  -> go n s
-                         Nothing -> throwError $ "Missing Shape " ++ show n
-        return $! r & refAnn .~ derive (constraints s) r
+        -> StateT (TextMap (Derived Shape)) m (HashSet Constraint)
+    ref r = constraints <$> go (r ^. refShape)
+
+    -- solve :: Typed Shape -> (a -> Derived a)
+    -- solve = undefined
+
+    -- been solved already, and if not, recur using 'go'.
+    -- memo :: (Functor m, MonadError String m)
+    --      => Text
+    --      -> StateT (TextMap (Derived Shape)) m (Derived Ref)
+    -- memo n = do
+    --     Map.lookup ss
+
+    -- go :: (Functor m, MonadError String m)
+    --    => Text
+    --    -> Typed Shape
+    --    -> StateT (TextMap (Derived Shape)) m (Derived Shape)
+    -- go n s = do
+    --     m <- gets (Map.lookup n)
+    --     case m of
+    --         Just s' -> return s'
+    --         Nothing -> do
+    --             s' <- traverseOf references ref s
+    --             modify (Map.insert n s')
+    --             return s'
+
+    -- ref :: (Functor m, MonadError String m)
+    --     => Typed Ref
+    --     -> StateT (TextMap (Derived Shape)) m (Derived Ref)
+    -- ref r = do
+    --     let n = r ^. refShape
+    --     m <- gets (Map.lookup n)
+    --     s <- case m of
+    --              Just s  -> return s
+    --              Nothing -> do
+    --                  case Map.lookup n ss of
+    --                      Just s  -> do
+    --                          go n s
+    --                      Nothing -> throwError $ "Missing Shape " ++ show n
+    --     return $! r & refAnn .~ derive (constraints s) r
 
     -- How to tell if the ref is required?
     -- Pass in the shape's required list?
 
-    derive :: HashSet Constraint -- The constraints assigned to the ref's actual shape.
-           -> Typed Ref
-           -> Derive
-    derive x r = Derive (r ^. refAnn) (x `Set.intersection` y)
-      where
---        y | r ^. refRequired = mempty
-        y | r ^. refStreaming = mempty
-          | otherwise         =  Set.fromList [CEq, CRead, CShow]
+--     derive :: HashSet Constraint -- The constraints assigned to the ref's actual shape.
+--            -> Typed Ref
+--            -> Derive
+--     derive x r = Derive (r ^. refAnn) (x `Set.intersection` y)
+--       where
+-- --        y | r ^. refRequired = mempty
+--         y | r ^. refStreaming = mempty
+--           | otherwise         =  Set.fromList [CEq, CRead, CShow]

@@ -183,10 +183,10 @@ protoInsts = sort . \case
     EC2      -> [IToQuery, IFromXML]
 
 data Data
-    = Prod (Derived Struct) Doc Decl Fun (TextMap Fun) [Inst]
+    = Prod (Typed Struct) Doc Decl Fun (TextMap Fun) [Inst]
     | Sum Enum Doc Decl [Inst]
 
-fieldPairs :: OrdMap Member (Derived Ref) -> TextMap Text
+fieldPairs :: OrdMap Member (Typed Ref) -> TextMap Text
 fieldPairs = Map.fromList . map f . OrdMap.toList
   where
     f (k, v) = (nfield k, fromMaybe (_memOriginal k) (v ^. refLocationName))
@@ -323,13 +323,13 @@ imports = map f
     f (n, q) = ImportDecl loc (moduleName n) q False False Nothing Nothing Nothing
 
 shapeData :: [Inst] -> Text -> Derived Shape -> Maybe Data
-shapeData is t s = case s of
+shapeData is t Derived{..} = case derived of
     SStruct x -> Just (prod x)
     SEnum   x -> Just (sum  x)
     _         -> Nothing
   where
     prod x =
-        let ctor = (structCtor t x)
+        let ctor = structCtor t x
             decl = recDecl n (x ^. structMembers) d
          in Prod x (doc "Undocumented type.") decl ctor mempty is
 
@@ -337,10 +337,10 @@ shapeData is t s = case s of
         let decl = sumDecl n (x ^. enumValues) d
          in Sum x (doc "Undocumented enumeration.") decl is
 
-    doc = flip fromMaybe (s ^. documentation)
+    doc = flip fromMaybe (derived ^. documentation)
 
     n = name t
-    d = map ((,[]) . UnQual . Ident . show) (Set.toList (constraints s))
+    d = map ((,[]) . unqual . constraint) . sort $ Set.toList constraints
 
 data Field = Field
     { _fldParam  :: Name
@@ -349,7 +349,7 @@ data Field = Field
     , _fldUpdate :: FieldUpdate
     }
 
-structCtor :: Text -> Derived Struct -> Fun
+structCtor :: Text -> Typed Struct -> Fun
 structCtor t (structFields -> fs) = Fun c d sig fun
   where
     d = fromString ("'" <> Text.unpack t <> "' smart constructor.")
@@ -364,16 +364,16 @@ structCtor t (structFields -> fs) = Fun c d sig fun
     ts = map _fldType   fs
     us = map _fldUpdate fs
 
-structFields :: Derived Struct -> [Field]
+structFields :: Typed Struct -> [Field]
 structFields = zipWith mk [1..] . OrdMap.toList . view structMembers
   where
-    mk :: Int -> (Member, Derived Ref) -> Field
+    mk :: Int -> (Member, Typed Ref) -> Field
     mk n (k, v) =
         let p = Ident ("p" ++ show n)
          in Field
             { _fldParam  = p
             , _fldName   = k
-            , _fldType   = v ^. refAnn . derType
+            , _fldType   = v ^. refAnn
             , _fldUpdate = FieldUpdate (UnQual (name $ nfield k)) (Var (UnQual p))
             }
 
@@ -383,7 +383,7 @@ typeSig n t = TypeSig loc [n] . Fold.foldr' (\x g -> TyFun x g) t
 sumDecl :: Name -> OrdMap Member Text -> [Deriving] -> Decl
 sumDecl n vs = dataDecl n (sumCtor `map` OrdMap.keys vs)
 
-recDecl :: Name -> OrdMap Member (Derived Ref) -> [Deriving] -> Decl
+recDecl :: Name -> OrdMap Member (Typed Ref) -> [Deriving] -> Decl
 recDecl n ms = dataDecl n [recCtor n (fields ms)]
 
 dataDecl :: Name -> [QualConDecl] -> [Deriving] -> Decl
@@ -412,9 +412,8 @@ dataOrNew = \case
     [QualConDecl _ _ _ (RecDecl _ [_])] -> NewType
     _                                   -> DataType
 
-fields :: OrdMap Member (Derived Ref) -> [([Name], Type)]
-fields = map (((:[]) . name . nfield) *** view (refAnn . derType))
-    . OrdMap.toList
+fields :: OrdMap Member (Typed Ref) -> [([Name], Type)]
+fields = map (((:[]) . name . nfield) *** view refAnn) . OrdMap.toList
 
 alt :: Pat -> Exp -> Alt
 alt = Exts.alt loc
