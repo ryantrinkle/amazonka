@@ -46,7 +46,6 @@ import qualified Gen.OrdMap                 as OrdMap
 import           Gen.Text                   (safeHead)
 import           Gen.Types                  hiding (override)
 import           Language.Haskell.Exts      (Type)
-import           System.IO.Unsafe
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 
@@ -55,7 +54,7 @@ service :: (Functor m, MonadError String m)
         -> m (Service (Derived Shape) (Untyped Ref))
 service s = do
     -- 1. Override rules are applied to the raw AST.
-    let os = override (s ^. ovOverrides) (s ^. svcShapes)
+    let os = rules (s ^. ovOverrides) (s ^. svcShapes)
 
     -- 2. Shape's members/fields are given a unique prefix.
     ps <- prefix os
@@ -134,8 +133,8 @@ service s = do
 --         -- return (Just (r & refShape .~ n))
 
 -- | Apply the override rulset to shapes and their respective fields.
-override :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
-override o = Map.foldlWithKey' go mempty
+rules :: TextMap Rules -> TextMap (Untyped Shape) -> TextMap (Untyped Shape)
+rules o = Map.foldlWithKey' go mempty
   where
     go acc n = shape (fromMaybe def (Map.lookup n o)) acc n
 

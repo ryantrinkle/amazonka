@@ -18,41 +18,30 @@ module Main (main) where
 
 import           Control.Applicative
 import           Control.Error
-import           Control.Lens                 hiding ((<.>), (??))
+import           Control.Lens              hiding ((<.>), (??))
 import           Control.Monad
 import           Control.Monad.Except
-import           Control.Monad.IO.Class
 import           Control.Monad.State
 import           Data.Either
-import qualified Data.Foldable                as Fold
-import qualified Data.HashMap.Strict          as Map
-import           Data.Jason                   (eitherDecode)
-import           Data.List                    (nub, sortBy)
-import           Data.List.NonEmpty           (NonEmpty (..))
-import qualified Data.List.NonEmpty           as NonEmpty
-import           Data.Maybe
+import           Data.Jason                (eitherDecode)
+import           Data.List                 (nub, sortBy)
+import           Data.List.NonEmpty        (NonEmpty (..))
+import qualified Data.List.NonEmpty        as NonEmpty
 import           Data.Monoid
-import qualified Data.SemVer                  as SemVer
+import qualified Data.SemVer               as SemVer
 import           Data.String
-import qualified Data.Text                    as Text
-import qualified Data.Text.IO                 as Text
-import qualified Data.Text.Lazy.Builder       as Build
-import qualified Data.Text.Lazy.IO            as LText
-import qualified Filesystem                   as FS
-import           Filesystem.Path.CurrentOS    hiding (encode)
-import           Gen.AST                      as AST
+import qualified Data.Text                 as Text
+import qualified Filesystem                as FS
+import           Filesystem.Path.CurrentOS hiding (encode)
 import           Gen.IO
-import qualified Gen.JSON                     as JSON
-import qualified Gen.Library                  as Library
+import qualified Gen.JSON                  as JSON
+import qualified Gen.Library               as Library
 import           Gen.Model
-import qualified Gen.Override                 as Override
+import qualified Gen.Override              as Override
 import           Gen.Types
-import           Language.Haskell.Exts.Pretty (prettyPrint)
 import           Options.Applicative
-import           Prelude                      hiding (FilePath)
-import           System.Directory.Tree
-import           System.IO                    hiding (FilePath)
-import qualified Text.EDE                     as EDE
+import           Prelude                   hiding (FilePath)
+import qualified Text.EDE                  as EDE
 
 data Options = Options
     { _optOutput    :: FilePath
@@ -147,10 +136,10 @@ main = runScript $ do
         --     . mapMaybe (uncurry AST.transform)
         --     $ Map.toList (s ^. svcShapes)
 
-        d <- Library.tree (o ^. optOutput) t (o ^. optVersion) s
+        r <- Library.tree (o ^. optOutput) t (o ^. optVersion) s
             >>= writeTree "Write Library"
 
-        copyDirectory (o ^. optAssets) (Library.root d)
+        copyDirectory (o ^. optAssets) (Library.root r)
 
         say "Completed" (s ^. svcName)
 
@@ -159,13 +148,14 @@ main = runScript $ do
 model :: FilePath -> FilePath -> Script (Service (Derived Shape) (Untyped Ref))
 model d o = do
     say "Load Model" (encode d)
+
     v <- version d
-    x <- decode override
+    x <- dec override'
     y <- JSON.merge <$> sequence
         [ pure x
-        , decode (normal v)
-        , JSON.def "waiters"    $ decode (waiters v)
-        , JSON.def "pagination" $ decode (pagers  v)
+        , dec (normal v)
+        , JSON.def "waiters"    $ dec (waiters v)
+        , JSON.def "pagination" $ dec (pagers  v)
         ]
     either (throwError . msg) Override.service (JSON.parse y)
   where
@@ -173,10 +163,10 @@ model d o = do
     waiters = path "waiters.json"
     pagers  = path "paginators.json"
 
-    override = o </> basename d <.> "json"
-    path e v = d </> v <.> e
+    override' = o </> basename d <.> "json"
+    path e v  = d </> v <.> e
 
-    decode = fileContents >=> hoistEither . eitherDecode
+    dec = fileContents >=> hoistEither . eitherDecode
 
     msg = mappend ("Error in " ++ show d ++ ": ")
 

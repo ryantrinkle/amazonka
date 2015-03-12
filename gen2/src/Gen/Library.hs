@@ -18,36 +18,21 @@ module Gen.Library where
 
 import           Control.Applicative
 import           Control.Error
-import           Control.Lens              (view, (^.))
+import           Control.Lens              ((^.))
 import           Control.Monad
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
-import           Data.Char
 import           Data.HashMap.Strict       (HashMap)
-import qualified Data.HashMap.Strict       as Map
-import qualified Data.HashMap.Strict       as Map
-import           Data.Monoid
-import           Data.Monoid
 import qualified Data.SemVer               as SemVer
-import           Data.Text                 (Text)
-import qualified Data.Text                 as Text
 import qualified Data.Text.Lazy            as LText
-import qualified Data.Text.Lazy.Builder    as Build
-import           Data.Text.Manipulate
-import           Data.Traversable          (traverse)
 import           Filesystem.Path.CurrentOS hiding (encode)
 import qualified Gen.AST                   as AST
-import           Gen.Documentation         as Doc
 import           Gen.Model
-import           Gen.Text
 import           Gen.Types
-import qualified HIndent
-import           Language.Haskell.Exts     (Decl)
 import           Prelude                   hiding (FilePath)
 import           System.Directory.Tree     hiding (file)
 import qualified Text.EDE                  as EDE
-import           Text.EDE.Filters
 
 -- tree :: FilePath
 --      -> Templates Protocol
