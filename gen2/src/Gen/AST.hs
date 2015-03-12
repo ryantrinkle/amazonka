@@ -42,9 +42,7 @@ import           Data.Aeson.Types             (Pair)
 import           Data.Bifunctor
 import qualified Data.Foldable                as Fold
 import           Data.Hashable                (Hashable)
-import           Data.HashMap.Strict          (HashMap)
 import qualified Data.HashMap.Strict          as Map
-import           Data.HashSet                 (HashSet)
 import qualified Data.HashSet                 as Set
 import           Data.List                    (sort)
 import           Data.Maybe
@@ -58,7 +56,6 @@ import qualified Data.Text.Lazy.Builder       as Build
 import           Data.Text.Manipulate
 import           Data.Traversable             (traverse)
 import           Gen.Documentation            as Doc
-import           Gen.JSON
 import           Gen.Model                    hiding (Name)
 import           Gen.OrdMap                   (OrdMap)
 import qualified Gen.OrdMap                   as OrdMap
@@ -67,7 +64,7 @@ import           Gen.Types
 import           GHC.Generics                 (Generic)
 import qualified HIndent
 import qualified Language.Haskell.Exts        as Exts
-import           Language.Haskell.Exts.Build  (app, sfun)
+import           Language.Haskell.Exts.Build  (sfun)
 import           Language.Haskell.Exts.Pretty
 import           Language.Haskell.Exts.Syntax
 import           Prelude                      hiding (Enum)
