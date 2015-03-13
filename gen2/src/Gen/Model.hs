@@ -2,6 +2,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase             #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE OverloadedLists        #-}
 {-# LANGUAGE OverloadedStrings      #-}
 {-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE TupleSections          #-}
@@ -330,34 +331,17 @@ documentation f = \case
     SDouble x -> SDouble <$> numDocumentation    f x
     SLong   x -> SLong   <$> numDocumentation    f x
 
--- calculate :: Shape a -> HashSet Constraint
--- calculate = \case
---     SString _ -> Set.fromList [CEq, COrd, CRead, CShow, CGeneric, CIsString]
---     SEnum   _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CGeneric, CIsString]
---     SBlob   _ -> Set.fromList [CGeneric]
---     SBool   _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CGeneric]
---     STime   _ -> Set.fromList [CEq, COrd, CRead, CShow, CGeneric]
---     SInt    _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
---     SDouble _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CReal, CRealFrac, CRealFloat]
---     SLong   _ -> Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
-
--- Do we ever need to cache the result? Why? It's never modified so it can be
--- calculated on request.
-
--- It needs to be cached because it's based on solving other shapes.
-
--- precalculated :: Derived Shape -> HashSet Constraint
--- precalculated s = case s of
---     SList   _ -> go s - this will be some set list
---     SMap    _ -> go s
---     SStruct _ -> go s
---     _         -> calculate s
---   where
---     go = foldl' Set.intersection mempty
---        . toListOf (references . refAnn . derSet)
-
---  -- foldl' Set.intersection mempty
---  --    . toListOf (references . refAnn . derSet)
+primitive :: Shape a -> HashSet Constraint
+primitive = \case
+    SString _ -> [CEq, COrd, CRead, CShow, CGeneric, CIsString]
+    SEnum   _ -> [CEq, COrd, CEnum, CRead, CShow, CGeneric]
+    SBlob   _ -> [CGeneric]
+    SBool   _ -> [CEq, COrd, CEnum, CRead, CShow, CGeneric]
+    STime   _ -> [CEq, COrd, CRead, CShow, CGeneric]
+    SInt    _ -> [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
+    SDouble _ -> [CEq, COrd, CEnum, CRead, CShow, CNum, CReal, CRealFrac, CRealFloat]
+    SLong   _ -> [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
+    _         -> mempty
 
 -- | Applicable HTTP components for an operation.
 data HTTP = HTTP
