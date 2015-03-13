@@ -354,11 +354,16 @@ structCtor t (structFields -> fs) = Fun c d sig fun
     c = name (nctor t)
     n = name t
 
+Required fields
+
     fun = sfun loc c ps (UnGuardedRhs (RecConstr (UnQual n) us)) (BDecls [])
     sig = typeSig c (tycon t) ts
 
     ps = map _fldParam  fs
     ts = map _fldType   fs
+
+Ps + ts need to be filtered by required fields
+
     us = map _fldUpdate fs
 
 structFields :: Typed Struct -> [Field]
@@ -373,6 +378,8 @@ structFields = zipWith mk [1..] . OrdMap.toList . view structMembers
             , _fldType   = v ^. refAnn
             , _fldUpdate = FieldUpdate (UnQual (name $ nfield k)) (Var (UnQual p))
             }
+
+The fieldupdate needs to set Nothing or mempty depending on the field type
 
 typeSig :: Name -> Type -> [Type] -> Decl
 typeSig n t = TypeSig loc [n] . Fold.foldr' (\x g -> TyFun x g) t

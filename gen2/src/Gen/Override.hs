@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLists       #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
@@ -30,6 +31,7 @@ import           Data.CaseInsensitive       (CI)
 import qualified Data.CaseInsensitive       as CI
 import           Data.Default.Class
 import           Data.Foldable              (foldl')
+import           Data.Hashable
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as Map
 import           Data.HashSet               (HashSet)
@@ -232,18 +234,18 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
          -> [CI Text]
          -> HashSet (CI Text)
          -> StateT (PS, PS) m Text
-    next k l []     ks = do
-        m <- use l
-        throwError . intercalate "\n" $
-              ("Error selecting prefix for: " <> Text.unpack k)
-            : ("Fields: " <> show ks)
-            : map (\h -> show h <> " => " <> show (Map.lookup h m)) (heuristics k)
     next k l (x:xs) ks = do
         m <- use l
         case Map.lookup x m of
             Just js | not (Set.null (Set.intersection js ks))
                 -> next k l xs ks
             _   -> l %= Map.insertWith (<>) x ks >> pure (CI.original x)
+    next k l _      ks = do
+        m <- use l
+        throwError . intercalate "\n" $
+              ("Error selecting prefix for: " <> Text.unpack k)
+            : ("Fields: " <> show ks)
+            : map (\h -> show h <> " => " <> show (Map.lookup h m)) (heuristics k)
 
     heuristics :: Text -> [CI Text]
     heuristics n = rules ++ ordinal
@@ -322,9 +324,6 @@ types ss = evalStateT (traverse (traverseOf references go) ss) mempty
                     Just (typeOf n -> t) -> modify (Map.insert n t) >> return t
                     Nothing              -> throwError $ "Missing Shape " ++ show n
 
-    -- derive :: Text -> Typed Shape -> Derive
-    -- derive n = undefined
-
     typeOf :: Text -> Untyped Shape -> Type
     typeOf n = \case
         SStruct _ -> AST.tycon n
@@ -379,71 +378,27 @@ constraints' ss = execStateT (traverse go (Map.keys ss)) mempty
            => Typed Shape
            -> StateT (TextMap (Derived Shape)) m (Derived Shape)
     derive s = Derived s <$> case s of
-        SString {} -> pure $ Set.fromList [CEq, COrd, CRead, CShow, CGeneric, CIsString]
-        SEnum   {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CGeneric, CIsString]
-        SBlob   {} -> pure $ Set.fromList [CGeneric]
-        SBool   {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CGeneric]
-        STime   {} -> pure $ Set.fromList [CEq, COrd, CRead, CShow, CGeneric]
-        SInt    {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
-        SDouble {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CReal, CRealFrac, CRealFloat]
-        SLong   {} -> pure $ Set.fromList [CEq, COrd, CEnum, CRead, CShow, CNum, CIntegral, CReal]
-        _          -> do
-            cs <- traverse ref (toListOf references s)
-            return $! case cs of
-                x:xs -> foldl' Set.intersection x xs
-                _    -> mempty
+        SList   _ -> complex base `always` list
+        SMap    _ -> complex base
+        SStruct _ -> complex (base <> list <> [COrd, CIsString]) `always` [CGeneric]
+        _         -> pure (primitive s)
+      where
+        list = [CMonoid, CSemigroup]
+        base = [CEq, CRead, CShow, CGeneric]
+
+        always f xs = f >>= pure . mappend xs
+
+        complex = liftA2 (Set.intersection) go . pure
+          where
+            go :: (Functor m, MonadError String m)
+               => StateT (TextMap (Derived Shape)) m (HashSet Constraint)
+            go = do
+                    m <- traverse ref (toListOf references s)
+                    return $! case m of
+                        x:xs -> foldl' Set.intersection x xs
+                        _    -> mempty
 
     ref :: (Functor m, MonadError String m)
         => Typed Ref
         -> StateT (TextMap (Derived Shape)) m (HashSet Constraint)
     ref r = constraints <$> go (r ^. refShape)
-
-    -- solve :: Typed Shape -> (a -> Derived a)
-    -- solve = undefined
-
-    -- been solved already, and if not, recur using 'go'.
-    -- memo :: (Functor m, MonadError String m)
-    --      => Text
-    --      -> StateT (TextMap (Derived Shape)) m (Derived Ref)
-    -- memo n = do
-    --     Map.lookup ss
-
-    -- go :: (Functor m, MonadError String m)
-    --    => Text
-    --    -> Typed Shape
-    --    -> StateT (TextMap (Derived Shape)) m (Derived Shape)
-    -- go n s = do
-    --     m <- gets (Map.lookup n)
-    --     case m of
-    --         Just s' -> return s'
-    --         Nothing -> do
-    --             s' <- traverseOf references ref s
-    --             modify (Map.insert n s')
-    --             return s'
-
-    -- ref :: (Functor m, MonadError String m)
-    --     => Typed Ref
-    --     -> StateT (TextMap (Derived Shape)) m (Derived Ref)
-    -- ref r = do
-    --     let n = r ^. refShape
-    --     m <- gets (Map.lookup n)
-    --     s <- case m of
-    --              Just s  -> return s
-    --              Nothing -> do
-    --                  case Map.lookup n ss of
-    --                      Just s  -> do
-    --                          go n s
-    --                      Nothing -> throwError $ "Missing Shape " ++ show n
-    --     return $! r & refAnn .~ derive (constraints s) r
-
-    -- How to tell if the ref is required?
-    -- Pass in the shape's required list?
-
---     derive :: HashSet Constraint -- The constraints assigned to the ref's actual shape.
---            -> Typed Ref
---            -> Derive
---     derive x r = Derive (r ^. refAnn) (x `Set.intersection` y)
---       where
--- --        y | r ^. refRequired = mempty
---         y | r ^. refStreaming = mempty
---           | otherwise         =  Set.fromList [CEq, CRead, CShow]

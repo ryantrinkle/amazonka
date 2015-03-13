@@ -18,15 +18,24 @@ instance Hashable {{ shape.key }}
 {% for inst in shape.value.instances %}
   {% case inst.value %}
   {% when "to-query" %}
+
 instance ToQuery  {{ shape.key }}
   {% when "from-json" %}
-instance FromJSON {{ shape.key }} where parseJSON = parseJSONText "{{ shape.key }}"
+
+instance FromJSON {{ shape.key }} where
+    parseJSON = parseJSONText "{{ shape.key }}"
   {% when "to-json" %}
-instance ToJSON   {{ shape.key }} where toJSON    = toJSONText
+
+instance ToJSON {{ shape.key }} where
+    toJSON = toJSONText
   {% when "from-xml" %}
-instance FromXML  {{ shape.key }} where parseXML  = parseXMLText "{{ shape.key }}"
+
+instance FromXML  {{ shape.key }} where
+    parseXML = parseXMLText "{{ shape.key }}"
   {% when "to-xml" %}
-instance ToXML    {{ shape.key }} where toXML     = toXMLText
+
+instance ToXML {{ shape.key }} where
+    toXML = toXMLText
   {% else %}
 Error: Attempting to render unrecognized instance '{{ inst.value }}'
   {% endcase %}
