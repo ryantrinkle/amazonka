@@ -54,8 +54,8 @@ executable amazonka-gen
         , ede                  == 0.2.4.*
         , errors
         , hashable
-        , haskell-src-exts     == 1.16.*
-        , hindent
+        , haskell-src-exts     >= 1.16
+        , hindent              >= 4.4.1
         , jason
         , lens                 == 4.5.*
         , mtl

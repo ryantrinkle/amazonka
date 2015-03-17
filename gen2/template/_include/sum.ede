@@ -19,7 +19,7 @@ instance Hashable {{ shape.key }}
   {% case inst.value %}
   {% when "to-query" %}
 
-instance ToQuery  {{ shape.key }}
+instance ToQuery {{ shape.key }}
   {% when "from-json" %}
 
 instance FromJSON {{ shape.key }} where
@@ -30,7 +30,7 @@ instance ToJSON {{ shape.key }} where
     toJSON = toJSONText
   {% when "from-xml" %}
 
-instance FromXML  {{ shape.key }} where
+instance FromXML {{ shape.key }} where
     parseXML = parseXMLText "{{ shape.key }}"
   {% when "to-xml" %}
 

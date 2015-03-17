@@ -23,7 +23,6 @@ import           Control.Monad
 import           Control.Monad.Except
 import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
-import           Data.HashMap.Strict       (HashMap)
 import qualified Data.SemVer               as SemVer
 import qualified Data.Text.Lazy            as LText
 import           Filesystem.Path.CurrentOS hiding (encode)

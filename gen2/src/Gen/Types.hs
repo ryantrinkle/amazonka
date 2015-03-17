@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures             #-}
+{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TupleSections              #-}
@@ -28,29 +29,65 @@ module Gen.Types where
 import           Control.Applicative
 import           Control.Lens
 import           Data.Bifunctor
-import           Data.CaseInsensitive         (CI)
-import qualified Data.CaseInsensitive         as CI
+import           Data.CaseInsensitive      (CI)
+import qualified Data.CaseInsensitive      as CI
 import           Data.Default.Class
-import           Data.Function                (on)
-import           Data.Hashable                (Hashable)
-import           Data.HashMap.Strict          (HashMap)
-import qualified Data.HashMap.Strict          as Map
-import           Data.HashSet                 (HashSet)
+import           Data.Function             (on)
+import           Data.Hashable             (Hashable)
+import           Data.HashMap.Strict       (HashMap)
+import qualified Data.HashMap.Strict       as Map
+import           Data.HashSet              (HashSet)
 import           Data.Jason.Types
 import           Data.Monoid
-import           Data.SemVer                  (Version, fromText)
+import           Data.SemVer               (Version, fromText)
 import           Data.String
-import           Data.Text                    (Text)
-import qualified Data.Text                    as Text
-import qualified Filesystem.Path.CurrentOS    as Path
-import           Gen.OrdMap                   (OrdMap)
-import qualified Gen.OrdMap                   as OrdMap
-import           GHC.Generics                 (Generic)
-import           Language.Haskell.Exts.Syntax (Type)
-import           Text.EDE                     (Template)
+import           Data.Text                 (Text)
+import qualified Data.Text                 as Text
+import qualified Filesystem.Path.CurrentOS as Path
+import           Gen.OrdMap                (OrdMap)
+import qualified Gen.OrdMap                as OrdMap
+import           GHC.Generics              (Generic)
+import           Text.EDE                  (Template)
+
+data Timestamp
+    = RFC822
+    | ISO8601
+    | POSIX
+      deriving (Eq, Show)
+
+instance FromJSON Timestamp where
+    parseJSON = withText "timestamp" $ \case
+        "rfc822"        -> pure RFC822
+        "iso8601"       -> pure ISO8601
+        "unixTimestamp" -> pure POSIX
+        e               -> fail ("Unknown Timestamp: " ++ Text.unpack e)
+
+data Prim
+    = PBlob
+    | PBool
+    | PText
+    | PInt
+    | PInteger
+    | PDouble
+    | PNatural
+    | PTime Timestamp
+      deriving (Eq, Show)
+
+data TType
+    = TType  Text
+    | TPrim  Prim
+    | TMaybe TType
+    | TSens  TType
+    -- | TFlat  TType
+    -- | TCase  TType
+    | TList  Text TType
+    | TList1 Text TType
+    | TMap   TType TType
+    | TEMap  Text Text Text TType TType
+      deriving (Eq, Show)
 
 type Untyped (f :: * -> *) = f ()
-type Typed   (f :: * -> *) = f Type
+type Typed   (f :: * -> *) = f TType
 
 type TextMap = HashMap Text
 type TextSet = HashSet Text
@@ -81,8 +118,8 @@ constraint :: Constraint -> Text
 constraint = Text.pack . drop 1 . show
 
 data Derived a = Derived
-    { derived     :: Typed a
-    , constraints :: HashSet Constraint
+    { _derTyped :: Typed a
+    , _derConst :: HashSet Constraint
     }
 
 data Member = Member

@@ -47,7 +47,7 @@ import           Gen.OrdMap                 (OrdMap)
 import qualified Gen.OrdMap                 as OrdMap
 import           Gen.Text                   (safeHead)
 import           Gen.Types                  hiding (override)
-import           Language.Haskell.Exts      (Type)
+import           Language.Haskell.Exts
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 
@@ -67,7 +67,7 @@ service s = do
 
     -- 4. The textual references in operations and shapes are replaced
     --    with actual Haskell types.
-    ts <- types ps
+    ts <- types (s ^. metaProtocol) ps
 
     -- 5. Solve the constraints for the annotated types.
     cs <- constraints' ts
@@ -253,17 +253,17 @@ prefix ss = evalStateT (Map.traverseWithKey go ss) (mempty, mempty)
         -- Acronym preference list.
         rules = map CI.mk $ catMaybes [r1, r2, r3, r4]
 
-        -- SomeTestType -> STT
+        -- SomeTestTType -> STT
         r1 = toAcronym n
 
-        -- SomeTestType -> S
+        -- SomeTestTType -> S
         r3 = Text.toUpper <$> safeHead n
 
-        -- Some -> Some || SomeTestType -> Some
+        -- Some -> Some || SomeTestTType -> Some
         r2 | Text.length n <= 3 = Just n
            | otherwise          = Just (Text.take 3 n)
 
-        -- SomeTestType -> Som
+        -- SomeTestTType -> Som
         r4 = upperHead <$> listToMaybe (splitWords n)
 
         -- Append an ordinal to the generated acronyms.
@@ -303,56 +303,29 @@ shared oo ss = occur (execState check mempty)
 
 -- | Replace the untyped 'Text' references with actual Haskell 'Type's.
 types :: (Functor m, MonadError String m)
-      => TextMap (Untyped Shape)
+      => Protocol
+      -> TextMap (Untyped Shape)
       -> m (TextMap (Typed Shape))
-types ss = evalStateT (traverse (traverseOf references go) ss) mempty
+types proto ss = evalStateT (traverse (traverseOf references go) ss) mempty
   where
     go :: MonadError String m
        => Untyped Ref
-       -> StateT (TextMap Type) m (Typed Ref)
+       -> StateT (TextMap TType) m (Typed Ref)
     go r = flip (set refAnn) r `liftM` memo (r ^. refShape)
 
     memo :: MonadError String m
          => Text
-         -> StateT (TextMap Type) m Type
+         -> StateT (TextMap TType) m TType
     memo n = do
         m <- gets (Map.lookup n)
         case m of
             Just t  -> return t
             Nothing ->
                 case Map.lookup n ss of
-                    Just (typeOf n -> t) -> modify (Map.insert n t) >> return t
-                    Nothing              -> throwError $ "Missing Shape " ++ show n
-
-    typeOf :: Text -> Untyped Shape -> Type
-    typeOf n = \case
-        SStruct _ -> AST.tycon n
-        SList   x -> list x
-        SMap    x -> hmap x
-        SString _ -> AST.tycon "Text"
-        SEnum   _ -> AST.tycon n
-        SBlob   x -> stream x
-        SBool   _ -> AST.tycon "Bool"
-        STime   x -> time x -- FIXME: This is dependent on the service.
-        SDouble _ -> AST.tycon "Double"
-        SInt    x -> natural x "Int"
-        SLong   x -> natural x "Integer"
-      where
-        list = const (AST.tycon "List") -- (List e a) || (List1 e a)
-
-        hmap = const (AST.tycon "Map") -- (Map k v) || (EMap e i j k v)
-
-        stream = const (AST.tycon "Stream") -- figure out streaming or not
-
-        time = AST.tycon
-             . Text.pack
-             . show
-             . fromMaybe RFC822
-             . view timeTimestampFormat
-
-        natural x
-            | x ^. numMin > Just 0 = const (AST.tycon "Natural")
-            | otherwise            = AST.tycon
+                    Just (AST.typeOf proto n -> t) ->
+                        modify (Map.insert n t) >> return t
+                    Nothing ->
+                        throwError $ "Missing Shape " ++ show n
 
 constraints' :: (Functor m, MonadError String m)
              => TextMap (Typed Shape)
@@ -381,7 +354,7 @@ constraints' ss = execStateT (traverse go (Map.keys ss)) mempty
         SList   _ -> complex base `always` list
         SMap    _ -> complex base
         SStruct _ -> complex (base <> list <> [COrd, CIsString]) `always` [CGeneric]
-        _         -> pure (primitive s)
+        _         -> pure (constraints s)
       where
         list = [CMonoid, CSemigroup]
         base = [CEq, CRead, CShow, CGeneric]
@@ -401,4 +374,4 @@ constraints' ss = execStateT (traverse go (Map.keys ss)) mempty
     ref :: (Functor m, MonadError String m)
         => Typed Ref
         -> StateT (TextMap (Derived Shape)) m (HashSet Constraint)
-    ref r = constraints <$> go (r ^. refShape)
+    ref r = _derConst <$> go (r ^. refShape)
