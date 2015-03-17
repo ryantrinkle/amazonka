@@ -75,19 +75,6 @@ data Protocol
 
 deriveFromJSON spinal ''Protocol
 
-data Timestamp
-    = RFC822
-    | ISO8601
-    | POSIX
-      deriving (Eq, Show)
-
-instance FromJSON Timestamp where
-    parseJSON = withText "timestamp" $ \case
-        "rfc822"        -> pure RFC822
-        "iso8601"       -> pure ISO8601
-        "unixTimestamp" -> pure POSIX
-        e               -> fail ("Unknown Timestamp: " ++ Text.unpack e)
-
 data Checksum
     = MD5
     | SHA256
@@ -148,9 +135,9 @@ instance FromJSON (Ref ()) where
 data List a = List
     { _listDocumentation :: Maybe Doc
     , _listMember        :: Ref a
-    , _listMin           :: Maybe Int
+    , _listMin           :: Int
     , _listMax           :: Maybe Int
-    , _listFlattened     :: Maybe Bool
+    , _listFlattened     :: Bool
     , _listLocationName  :: Maybe Text
     } deriving (Eq, Show)
 
@@ -158,9 +145,9 @@ instance FromJSON (List ()) where
     parseJSON = withObject "list" $ \o -> List
         <$> o .:? "documentation"
         <*> o .:  "member"
-        <*> o .:? "min"
+        <*> o .:? "min"       .!= 0
         <*> o .:? "max"
-        <*> o .:? "flattened"
+        <*> o .:? "flattened" .!= False
         <*> o .:? "locationName"
 
 data Map a = Map
@@ -331,8 +318,8 @@ documentation f = \case
     SDouble x -> SDouble <$> numDocumentation    f x
     SLong   x -> SLong   <$> numDocumentation    f x
 
-primitive :: Shape a -> HashSet Constraint
-primitive = \case
+constraints :: Shape a -> HashSet Constraint
+constraints = \case
     SString _ -> [CEq, COrd, CRead, CShow, CGeneric, CIsString]
     SEnum   _ -> [CEq, COrd, CEnum, CRead, CShow, CGeneric]
     SBlob   _ -> [CGeneric]

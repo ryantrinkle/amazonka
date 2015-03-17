@@ -28,7 +28,7 @@ module Gen.AST
      , HasLibrary (..)
      , Cabal
      , cabal
-     , tycon
+     , typeOf
      ) where
 
 import           Control.Applicative          (Applicative, pure, (<$>))
@@ -64,13 +64,16 @@ import           Gen.Types
 import           GHC.Generics                 (Generic)
 import qualified HIndent
 import qualified Language.Haskell.Exts        as Exts
-import           Language.Haskell.Exts.Build  (sfun)
+import           Language.Haskell.Exts.Build  (app, lamE, op, paren, sfun, sym)
 import           Language.Haskell.Exts.Pretty
 import           Language.Haskell.Exts.Syntax
 import           Prelude                      hiding (Enum)
 
 nfield :: Member -> Text
-nfield (Member p _ n) = prefixed (Text.cons '_' . Text.toLower <$> p) n
+nfield = Text.cons '_' . nlens
+
+nlens :: Member -> Text
+nlens (Member p _ n) = prefixed (Text.toLower <$> p) n
 
 nbranch :: Member -> Text
 nbranch (Member p _ n) = prefixed (Text.toUpper <$> p) n
@@ -83,10 +86,12 @@ prefixed (Just x) = mappend x . upperHead
 prefixed Nothing  = upperHead
 
 pretty :: (Monad m, MonadError String m, Pretty a) => a -> m LText.Text
-pretty d = hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
+pretty d =
+    return (LText.pack x)
+    --hoist $ HIndent.reformat HIndent.johanTibell Nothing (LText.pack x)
   where
-    hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
-    hoist (Right o) = return (Build.toLazyText o)
+    -- hoist (Left  e) = throwError (e ++ "\nDecl: " ++ x)
+    -- hoist (Right o) = return (Build.toLazyText o)
 
     x = prettyPrintStyleMode style' mode' d
 
@@ -320,30 +325,55 @@ imports = map f
     f (n, q) = ImportDecl loc (moduleName n) q False False Nothing Nothing Nothing
 
 shapeData :: [Inst] -> Text -> Derived Shape -> Maybe Data
-shapeData is t Derived{..} = case derived of
+shapeData is t Derived{..} = case _derTyped of
     SStruct x -> Just (prod x)
-    SEnum   x -> Just (sum  x)
+    SEnum   x -> Just (sum' x)
     _         -> Nothing
   where
     prod x =
         let ctor = structCtor t x
             decl = recDecl n (x ^. structMembers) d
-         in Prod x (doc "Undocumented type.") decl ctor mempty is
+         in Prod x (doc "Undocumented type.") decl ctor (lenses t x) is
 
-    sum x =
+    sum' x =
         let decl = sumDecl n (x ^. enumValues) d
          in Sum x (doc "Undocumented enumeration.") decl is
 
-    doc = flip fromMaybe (derived ^. documentation)
+    doc = flip fromMaybe (_derTyped ^. documentation)
 
     n = name t
-    d = map ((,[]) . unqual . constraint) . sort $ Set.toList constraints
+    d = map ((,[]) . unqual . constraint) . sort $ Set.toList _derConst
+
+lenses :: Text -> Typed Struct -> TextMap Fun
+lenses t = Map.fromList . map mk . OrdMap.toList . view structMembers
+  where
+    mk :: (Member, Typed Ref) -> (Text, Fun)
+    mk (k, v) = (l, Fun n doc sig fun)
+      where
+        n = name l
+        l = nlens k
+        f = nfield k
+
+        doc = fromMaybe "Undocumented lens." (v ^. refDocumentation)
+
+        sig = typeSig n lens []
+        fun = sfun loc n [] (UnGuardedRhs sett) (BDecls [])
+
+        lens = TyApp (TyApp (tycon "Lens'") (tycon t)) (external (v ^. refAnn))
+
+        sett = mapping (v ^. refAnn) $
+            app (app (var "lens") (var f))
+                (paren (lamE loc [pvar "s", pvar "a"]
+                    (RecUpdate (var "s") [FieldUpdate (unqual f) (var "a")])))
+
+--typeSig :: Name -> Type -> [Type] -> Decl
 
 data Field = Field
     { _fldParam  :: Name
     , _fldName   :: Member
-    , _fldType   :: Type
+    , _fldType   :: TType
     , _fldUpdate :: FieldUpdate
+    , _fldReq    :: Bool
     }
 
 structCtor :: Text -> Typed Struct -> Fun
@@ -354,16 +384,12 @@ structCtor t (structFields -> fs) = Fun c d sig fun
     c = name (nctor t)
     n = name t
 
-Required fields
-
+    sig = typeSig c (tycon t) (map external ts)
     fun = sfun loc c ps (UnGuardedRhs (RecConstr (UnQual n) us)) (BDecls [])
-    sig = typeSig c (tycon t) ts
 
-    ps = map _fldParam  fs
-    ts = map _fldType   fs
-
-Ps + ts need to be filtered by required fields
-
+    ps = map _fldParam rs
+    ts = map _fldType rs
+    rs = filter _fldReq fs
     us = map _fldUpdate fs
 
 structFields :: Typed Struct -> [Field]
@@ -372,14 +398,16 @@ structFields = zipWith mk [1..] . OrdMap.toList . view structMembers
     mk :: Int -> (Member, Typed Ref) -> Field
     mk n (k, v) =
         let p = Ident ("p" ++ show n)
+            t = v ^. refAnn
+            d = defaulted t
+            f = fromMaybe (Var (UnQual p)) d
          in Field
             { _fldParam  = p
             , _fldName   = k
-            , _fldType   = v ^. refAnn
-            , _fldUpdate = FieldUpdate (UnQual (name $ nfield k)) (Var (UnQual p))
+            , _fldType   = t
+            , _fldUpdate = FieldUpdate (UnQual (name $ nfield k)) f
+            , _fldReq    = not (isJust d)
             }
-
-The fieldupdate needs to set Nothing or mempty depending on the field type
 
 typeSig :: Name -> Type -> [Type] -> Decl
 typeSig n t = TypeSig loc [n] . Fold.foldr' (\x g -> TyFun x g) t
@@ -394,22 +422,16 @@ dataDecl :: Name -> [QualConDecl] -> [Deriving] -> Decl
 dataDecl n cs = DataDecl loc (dataOrNew cs) [] n [] cs
 
 sumCtor :: Member -> QualConDecl
-sumCtor m = ctor (ConDecl (name $ nbranch m) [])
+sumCtor m = QualConDecl loc [] [] (ConDecl (name $ nbranch m) [])
 
 recCtor :: Name -> [([Name], Type)] -> QualConDecl
-recCtor n = ctor . RecDecl n
-
-ctor :: ConDecl -> QualConDecl
-ctor = QualConDecl loc [] []
-
-pcon :: Text -> Pat
-pcon n = PApp (unqual n) []
-
-econ :: Text -> Exp
-econ = Con . unqual
+recCtor n = QualConDecl loc [] [] . RecDecl n
 
 tycon :: Text -> Type
 tycon = TyCon . UnQual . name
+
+singleton :: Text -> Type
+singleton = tycon . ("\"" <>) . (<> "\"")
 
 dataOrNew :: [QualConDecl] -> DataOrNew
 dataOrNew = \case
@@ -417,22 +439,7 @@ dataOrNew = \case
     _                                   -> DataType
 
 fields :: OrdMap Member (Typed Ref) -> [([Name], Type)]
-fields = map (((:[]) . name . nfield) *** view refAnn) . OrdMap.toList
-
-alt :: Pat -> Exp -> Alt
-alt = Exts.alt loc
-
-pbind :: Pat -> Exp -> Decl
-pbind = Exts.patBind loc
-
-op :: Text -> Exp -> Exp -> Exp
-op o x y = Exts.infixApp x (Exts.op . Exts.sym $ Text.unpack o) y
-
-pstr :: Text -> Pat
-pstr = Exts.strP . Text.unpack
-
-estr :: Text -> Exp
-estr = Exts.strE . Text.unpack
+fields = map (((:[]) . name . nfield) *** (internal . view refAnn)) . OrdMap.toList
 
 var :: Text -> Exp
 var = Exts.var . name
@@ -451,3 +458,130 @@ moduleName = ModuleName . Text.unpack
 
 loc :: SrcLoc
 loc = SrcLoc "" 0 0
+
+typeOf :: Protocol -> Text -> Untyped Shape -> TType
+typeOf proto n = \case
+    SStruct _ -> TType n
+    SEnum   _ -> TType n
+    SString _ -> TType "Text"
+    SBool   _ -> TType "Bool"
+    SDouble _ -> TType "Double"
+    SList   x -> list x
+    SMap    x -> hmap x
+    SBlob   x -> stream x
+    STime   x -> time x
+    SInt    x -> natural x "Int"
+    SLong   x -> natural x "Integer"
+  where
+    list x = nonEmpty (TType (x ^. listMember . refShape))
+      where
+        -- flatten (TyApp (TyApp nonEmpty member) )
+--      where
+        -- flatten
+        --     | x ^. listFlattened = TyApp tyflat
+        --     | otherwise          = id
+
+        nonEmpty
+            | (x ^. listMin) > 0 = TList1 member
+            | otherwise          = TList  member
+
+        member =
+              fromMaybe defMember
+            $ x ^. listMember . refLocationName
+
+        defMember
+            | proto == Query = "member"
+            | proto == EC2   = "member"
+            | otherwise      = error $ "Unable to get locationName: " ++ show x
+
+    hmap = const (TType "Map") -- (Map k v) || (EMap e i j k v)
+
+    stream = const (TType "Stream") -- figure out streaming or not
+
+    -- FIXME: This is dependent on the service.
+    time = TType
+         . Text.pack
+         . show
+         . fromMaybe RFC822
+         . view timeTimestampFormat
+
+    natural x
+        | x ^. numMin > Just 0 = const (TType "Natural")
+        | otherwise            = TType
+
+defaulted :: TType -> Maybe Exp
+defaulted = \case
+    TMaybe {} -> Just (var "Nothing")
+    TList  {} -> Just (var "mempty")
+    TMap   {} -> Just (var "mempty")
+    TEMap  {} -> Just (var "mempty")
+    _         -> Nothing
+
+internal :: TType -> Type
+internal = \case
+    TType  x         -> tycon x
+    TPrim  x         -> primitive True x
+    TMaybe x         -> TyApp (tycon "Maybe") (internal x)
+    TSens  x         -> TyApp (tycon "Sensitive") (internal x)
+    -- TFlat  x         -> TyApp (tycon "Flatten") (internal x)
+    -- TCase  x         -> TyApp (tycon "CI") (internal x)
+    TList  i x       -> TyApp (TyApp (tycon "List") (singleton i)) (internal x)
+    TList1 i x       -> TyApp (TyApp (tycon "List1") (singleton i)) (internal x)
+    TMap   k v       -> TyApp (TyApp (tycon "Map") (internal k)) (internal v)
+    TEMap  e i j k v ->
+        TyApp
+          (TyApp
+            (TyApp
+               (TyApp
+                  (TyApp (tycon "EMap") (singleton e))
+                  (singleton i))
+               (singleton j))
+            (internal k))
+          (internal v)
+
+external :: TType -> Type
+external = \case
+    TType  x         -> tycon x
+    TPrim  x         -> primitive False x
+    TMaybe x         -> TyApp (tycon "Maybe") (external x)
+    TSens  x         -> external x
+    -- TFlat  x         -> external x
+    -- TCase  x         -> external x
+    TList  _ x       -> TyList (external x)
+    TList1 _ x       -> TyApp (tycon "NonEmpty") (external x)
+    TMap   k v       -> TyApp (TyApp (tycon "HashMap") (external k)) (external v)
+    TEMap  _ _ _ k v -> TyApp (TyApp (tycon "HashMap") (external k)) (external v)
+
+-- FIXME: This can potentially need chaining
+mapping :: TType -> (Exp -> Exp)
+mapping = compose . iso
+  where
+    compose xs e = Fold.foldl' (\y -> InfixApp y (op (sym "."))) e xs
+
+    iso = \case
+        TPrim (PTime {})    -> [var "_Time"]
+        TPrim (PNatural {}) -> [var "_Nat"]
+        TMaybe x            -> var "mapping" : iso x
+        TSens  x            -> var "_Sensitive" : iso x
+        TList  {}           -> [var "_List"]  -- Coercible.
+        TList1 {}           -> [var "_List1"] -- Coercible.
+        TMap   {}           -> [var "_Map"]   -- Coercible.
+        TEMap  {}           -> [var "_EMap"]  -- Coercible.
+        _                   -> []
+
+primitive :: Bool -> Prim -> Type
+primitive i = tycon . \case
+    PBlob           -> "Base64"
+    -- PReq         -> "RqBody"
+    -- PRes         -> "RsBody"
+    PBool           -> "Bool"
+    PText           -> "Text"
+    PInt            -> "Int"
+    PInteger        -> "Integer"
+    PDouble         -> "Double"
+    PNatural
+        | i         -> "Nat"
+        | otherwise -> "Natural"
+    PTime ts
+        | i         -> Text.pack (show ts)
+        | otherwise -> "UTCTime"
