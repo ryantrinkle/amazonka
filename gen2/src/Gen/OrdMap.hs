@@ -15,17 +15,23 @@ module Gen.OrdMap
     , values
     ) where
 
-import           Control.Applicative
-import           Control.Lens
-import           Data.Bifunctor
-import           Data.Foldable       (Foldable)
-import           Data.Jason.Types
-import           Data.Monoid
-import           Data.Text           (Text)
-import           Prelude             hiding (map)
+import Control.Applicative
+import Control.Lens
+import Data.Foldable       (Foldable (..))
+import Data.Jason.Types
+import Data.Monoid
+import Data.Text           (Text)
+import Data.Traversable
+import Prelude             hiding (foldr, map)
 
 data OrdMap k v = OrdMap { toList :: [(k, v)] }
-    deriving (Eq, Functor, Foldable, Traversable, Show)
+    deriving (Eq, Functor, Show)
+
+instance Foldable (OrdMap k) where
+    foldr f x (OrdMap xs) = foldr (f . snd) x xs
+
+instance Traversable (OrdMap k) where
+    traverse f (OrdMap xs) = OrdMap <$> traverse (\(k, v) -> (k,) <$> f v) xs
 
 instance Monoid (OrdMap k v) where
     mempty      = OrdMap mempty
