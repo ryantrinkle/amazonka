@@ -32,6 +32,7 @@ import           Data.Jason
 import           Data.Monoid
 import           Data.Text            (Text)
 import qualified Data.Text            as Text
+import           Debug.Trace
 import           Gen.Documentation
 import           Gen.Model.Paginator  as Model
 import           Gen.Model.Retrier    as Model
@@ -154,9 +155,9 @@ data Map a = Map
     { _mapDocumentation :: Maybe Doc
     , _mapKey           :: Ref a
     , _mapValue         :: Ref a
-    , _mapMin           :: Maybe Int
+    , _mapMin           :: Int
     , _mapMax           :: Maybe Int
-    , _mapFlattened     :: Maybe Bool
+    , _mapFlattened     :: Bool
     } deriving (Eq, Show)
 
 instance FromJSON (Map ()) where
@@ -164,28 +165,28 @@ instance FromJSON (Map ()) where
         <$> o .:? "documentation"
         <*> o .:  "key"
         <*> o .:  "value"
-        <*> o .:? "min"
+        <*> o .:? "min"       .!= 0
         <*> o .:? "max"
-        <*> o .:? "flattened"
+        <*> o .:? "flattened" .!= False
 
 data Struct a = Struct
     { _structDocumentation :: Maybe Doc
     , _structRequired      :: HashSet (CI Text)
     , _structPayload       :: Maybe Text
     , _structXmlNamespace  :: Maybe XMLNS
-    , _structException     :: Maybe Bool
-    , _structFault         :: Maybe Bool
+    , _structException     :: Bool
+    , _structFault         :: Bool
     , _structMembers       :: OrdMap Member (Ref a)
     } deriving (Eq, Show)
 
 instance FromJSON (Struct ()) where
     parseJSON = withObject "structure" $ \o -> Struct
         <$> o .:? "documentation"
-        <*> o .:? "required" .!= mempty
+        <*> o .:? "required"  .!= mempty
         <*> o .:? "payload"
         <*> o .:? "xmlNamespace"
-        <*> o .:? "exception"
-        <*> o .:? "fault"
+        <*> o .:? "exception" .!= False
+        <*> o .:? "fault"     .!= False
         <*> (first member <$> o .:? "members" .!= mempty)
 
 data Chars = Chars
@@ -290,7 +291,7 @@ references :: Traversal (Shape a) (Shape b) (Ref a) (Ref b)
 references f = \case
     SList   x -> list   x <$> f (_listMember x)
     SMap    x -> hmap   x <$> f (_mapKey x) <*> f (_mapValue x)
-    SStruct x -> struct x <$> traverse f (_structMembers x)
+    SStruct x -> struct x <$> traverse g (_structMembers x)
     SString x -> pure (SString x)
     SEnum   x -> pure (SEnum   x)
     SBlob   x -> pure (SBlob   x)
@@ -300,6 +301,8 @@ references f = \case
     SDouble x -> pure (SDouble x)
     SLong   x -> pure (SLong   x)
   where
+    g x = f x -- trace (show (_refShape x)) (f x)
+
     list   x m   = SList   $ x { _listMember = m }
     hmap   x k v = SMap    $ x { _mapKey = k, _mapValue = v}
     struct x ms  = SStruct $ x { _structMembers = ms }

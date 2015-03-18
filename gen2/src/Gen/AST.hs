@@ -28,7 +28,6 @@ module Gen.AST
      , HasLibrary (..)
      , Cabal
      , cabal
-     , typeOf
      ) where
 
 import           Control.Applicative          (Applicative, pure, (<$>))
@@ -52,7 +51,6 @@ import           Data.String
 import           Data.Text                    (Text)
 import qualified Data.Text                    as Text
 import qualified Data.Text.Lazy               as LText
-import qualified Data.Text.Lazy.Builder       as Build
 import           Data.Text.Manipulate
 import           Data.Traversable             (traverse)
 import           Gen.Documentation            as Doc
@@ -62,7 +60,6 @@ import qualified Gen.OrdMap                   as OrdMap
 import           Gen.Text
 import           Gen.Types
 import           GHC.Generics                 (Generic)
-import qualified HIndent
 import qualified Language.Haskell.Exts        as Exts
 import           Language.Haskell.Exts.Build  (app, lamE, op, paren, sfun, sym)
 import           Language.Haskell.Exts.Pretty
@@ -459,56 +456,6 @@ moduleName = ModuleName . Text.unpack
 loc :: SrcLoc
 loc = SrcLoc "" 0 0
 
-typeOf :: Protocol -> Text -> Untyped Shape -> TType
-typeOf proto n = \case
-    SStruct _ -> TType n
-    SEnum   _ -> TType n
-    SString _ -> TType "Text"
-    SBool   _ -> TType "Bool"
-    SDouble _ -> TType "Double"
-    SList   x -> list x
-    SMap    x -> hmap x
-    SBlob   x -> stream x
-    STime   x -> time x
-    SInt    x -> natural x "Int"
-    SLong   x -> natural x "Integer"
-  where
-    list x = nonEmpty (TType (x ^. listMember . refShape))
-      where
-        -- flatten (TyApp (TyApp nonEmpty member) )
---      where
-        -- flatten
-        --     | x ^. listFlattened = TyApp tyflat
-        --     | otherwise          = id
-
-        nonEmpty
-            | (x ^. listMin) > 0 = TList1 member
-            | otherwise          = TList  member
-
-        member =
-              fromMaybe defMember
-            $ x ^. listMember . refLocationName
-
-        defMember
-            | proto == Query = "member"
-            | proto == EC2   = "member"
-            | otherwise      = error $ "Unable to get locationName: " ++ show x
-
-    hmap = const (TType "Map") -- (Map k v) || (EMap e i j k v)
-
-    stream = const (TType "Stream") -- figure out streaming or not
-
-    -- FIXME: This is dependent on the service.
-    time = TType
-         . Text.pack
-         . show
-         . fromMaybe RFC822
-         . view timeTimestampFormat
-
-    natural x
-        | x ^. numMin > Just 0 = const (TType "Natural")
-        | otherwise            = TType
-
 defaulted :: TType -> Maybe Exp
 defaulted = \case
     TMaybe {} -> Just (var "Nothing")
@@ -523,7 +470,7 @@ internal = \case
     TPrim  x         -> primitive True x
     TMaybe x         -> TyApp (tycon "Maybe") (internal x)
     TSens  x         -> TyApp (tycon "Sensitive") (internal x)
-    -- TFlat  x         -> TyApp (tycon "Flatten") (internal x)
+    TFlat  x         -> TyApp (tycon "Flatten") (internal x)
     -- TCase  x         -> TyApp (tycon "CI") (internal x)
     TList  i x       -> TyApp (TyApp (tycon "List") (singleton i)) (internal x)
     TList1 i x       -> TyApp (TyApp (tycon "List1") (singleton i)) (internal x)
@@ -545,7 +492,7 @@ external = \case
     TPrim  x         -> primitive False x
     TMaybe x         -> TyApp (tycon "Maybe") (external x)
     TSens  x         -> external x
-    -- TFlat  x         -> external x
+    TFlat  x         -> external x
     -- TCase  x         -> external x
     TList  _ x       -> TyList (external x)
     TList1 _ x       -> TyApp (tycon "NonEmpty") (external x)
@@ -563,6 +510,7 @@ mapping = compose . iso
         TPrim (PNatural {}) -> [var "_Nat"]
         TMaybe x            -> var "mapping" : iso x
         TSens  x            -> var "_Sensitive" : iso x
+        TFlat  x            -> var "_Flatten" : iso x
         TList  {}           -> [var "_List"]  -- Coercible.
         TList1 {}           -> [var "_List1"] -- Coercible.
         TMap   {}           -> [var "_Map"]   -- Coercible.

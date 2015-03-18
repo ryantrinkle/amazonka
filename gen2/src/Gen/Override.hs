@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns          #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE LambdaCase            #-}
@@ -6,8 +7,8 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE RecordWildCards       #-}
+{-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE TupleSections         #-}
-{-# LANGUAGE ViewPatterns          #-}
 
 -- Module      : Gen.Override
 -- Copyright   : (c) 2013-2015 Brendan Hay <brendan.g.hay@gmail.com>
@@ -31,7 +32,6 @@ import           Data.CaseInsensitive       (CI)
 import qualified Data.CaseInsensitive       as CI
 import           Data.Default.Class
 import           Data.Foldable              (foldl')
-import           Data.Hashable
 import           Data.HashMap.Strict        (HashMap)
 import qualified Data.HashMap.Strict        as Map
 import           Data.HashSet               (HashSet)
@@ -41,43 +41,15 @@ import           Data.Monoid
 import           Data.Text                  (Text)
 import qualified Data.Text                  as Text
 import           Data.Text.Manipulate
-import qualified Gen.AST                    as AST
+import           Debug.Trace
 import           Gen.Model                  hiding (Name, State)
 import           Gen.OrdMap                 (OrdMap)
 import qualified Gen.OrdMap                 as OrdMap
 import           Gen.Text                   (safeHead)
 import           Gen.Types                  hiding (override)
-import           Language.Haskell.Exts
+
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
-
-service :: (Functor m, MonadError String m)
-        => Service (Untyped Shape) (Untyped Ref)
-        -> m (Service (Derived Shape) (Untyped Ref))
-service s = do
-    -- 1. Override rules are applied to the raw AST.
-    let os = rules (s ^. ovOverrides) (s ^. svcShapes)
-
-    -- 2. Shape's members/fields are given a unique prefix.
-    ps <- prefix os
-
-    -- 3. Shapes which are specified as operation inputs/outputs are checked
-    --    for sharing/commonality.
-    -- let sh = shared (s ^. svcOperations) ps
-
-    -- 4. The textual references in operations and shapes are replaced
-    --    with actual Haskell types.
-    ts <- types (s ^. metaProtocol) ps
-
-    -- 5. Solve the constraints for the annotated types.
-    cs <- constraints' ts
-
-    -- 6. Substitution is done to replace the operation's input/output
-    --    references with actual shapes, and any non-shared shapes
-    --    are then removed from the service's shape map.
---    return $! subst sh (s & svcShapes .~ ts)
-
-    return (s { _svcShapes = cs })
 
 -- -- | Replace operation input/output references with their respective shapes,
 -- -- removing the shape from the service if they are not shared.
@@ -301,32 +273,6 @@ shared oo ss = occur (execState check mempty)
     count :: Text -> State (TextMap Int) ()
     count n  = modify (Map.insertWith (+) n 1)
 
--- | Replace the untyped 'Text' references with actual Haskell 'Type's.
-types :: (Functor m, MonadError String m)
-      => Protocol
-      -> TextMap (Untyped Shape)
-      -> m (TextMap (Typed Shape))
-types proto ss = evalStateT (traverse (traverseOf references go) ss) mempty
-  where
-    go :: MonadError String m
-       => Untyped Ref
-       -> StateT (TextMap TType) m (Typed Ref)
-    go r = flip (set refAnn) r `liftM` memo (r ^. refShape)
-
-    memo :: MonadError String m
-         => Text
-         -> StateT (TextMap TType) m TType
-    memo n = do
-        m <- gets (Map.lookup n)
-        case m of
-            Just t  -> return t
-            Nothing ->
-                case Map.lookup n ss of
-                    Just (AST.typeOf proto n -> t) ->
-                        modify (Map.insert n t) >> return t
-                    Nothing ->
-                        throwError $ "Missing Shape " ++ show n
-
 constraints' :: (Functor m, MonadError String m)
              => TextMap (Typed Shape)
              -> m (TextMap (Derived Shape))
@@ -351,9 +297,9 @@ constraints' ss = execStateT (traverse go (Map.keys ss)) mempty
            => Typed Shape
            -> StateT (TextMap (Derived Shape)) m (Derived Shape)
     derive s = Derived s <$> case s of
-        SList   _ -> complex base `always` list
-        SMap    _ -> complex base
-        SStruct _ -> complex (base <> list <> [COrd, CIsString]) `always` [CGeneric]
+        SList   _ -> pure (base <> list)
+        SMap    _ -> pure (base <> list)
+        SStruct _ -> complex (base <> [COrd, CIsString]) `always` [CGeneric]
         _         -> pure (constraints s)
       where
         list = [CMonoid, CSemigroup]
@@ -361,11 +307,11 @@ constraints' ss = execStateT (traverse go (Map.keys ss)) mempty
 
         always f xs = f >>= pure . mappend xs
 
-        complex = liftA2 (Set.intersection) go . pure
+        complex = liftA2 (Set.intersection) go' . pure
           where
-            go :: (Functor m, MonadError String m)
-               => StateT (TextMap (Derived Shape)) m (HashSet Constraint)
-            go = do
+            go' :: (Functor m, MonadError String m)
+                => StateT (TextMap (Derived Shape)) m (HashSet Constraint)
+            go' = do
                     m <- traverse ref (toListOf references s)
                     return $! case m of
                         x:xs -> foldl' Set.intersection x xs
@@ -375,3 +321,118 @@ constraints' ss = execStateT (traverse go (Map.keys ss)) mempty
         => Typed Ref
         -> StateT (TextMap (Derived Shape)) m (HashSet Constraint)
     ref r = _derConst <$> go (r ^. refShape)
+
+-- | Replace the untyped 'Text' references with actual Haskell 'Type's.
+types :: (Functor m, MonadError String m)
+      => Protocol
+      -> TextMap (Untyped Shape)
+      -> m (TextMap (Typed Shape))
+types proto ss = evalStateT (traverse (id references ref) ss) mempty
+  where
+    ref :: MonadError String m
+        => Untyped Ref
+        -> StateT (TextMap TType) m (Typed Ref)
+    ref r = flip (set refAnn) r `liftM` memo (_refShape r)
+
+    memo :: MonadError String m
+         => Text
+         -> StateT (TextMap TType) m TType
+    memo n = do
+        m <- gets (Map.lookup n)
+        case m of
+            Just t -> return t
+            Nothing -> do
+                t <- case Map.lookup n ss of
+                    Just !x -> solve n x
+                    Nothing -> return (TType n)
+                modify (Map.insert n t)
+                return t
+
+    solve :: MonadError String m
+          => Text
+          -> Untyped Shape
+          -> StateT (TextMap TType) m TType
+    solve n = \case
+        SStruct _ -> return (TType n)
+        SEnum   _ -> return (TType n)
+        SString _ -> return (TType "Text")
+        SBool   _ -> return (TType "Bool")
+        SDouble _ -> return (TType "Double")
+        SInt    x -> return (number x "Int")
+        SLong   x -> return (number x "Integer")
+        STime   x -> return (time x)
+        SBlob   x -> return (stream x)
+        SList   x -> list x
+        SMap    x -> hmap x
+      where
+        hmap x = do
+            k <- ref (x ^. mapKey)
+            v <- ref (x ^. mapValue)
+            return $! flatten (TEMap e i j (k ^. refAnn) (v ^. refAnn))
+          where
+            e = fromMaybe "entry" Nothing -- (r ^. refLocationName)
+            i = fromMaybe "key"   (x ^. mapKey   . refLocationName)
+            j = fromMaybe "value" (x ^. mapValue . refLocationName)
+
+            flatten
+                | x ^. mapFlattened = TFlat
+                | otherwise         = id
+
+        list x = do
+            t <- ref (x ^. listMember)
+            return $! flatten (nonEmpty (t ^. refAnn))
+          where
+            -- flatten (TyApp (TyApp nonEmpty member) )
+            flatten
+                | x ^. listFlattened = TFlat
+                | otherwise          = id
+
+            nonEmpty
+                | (x ^. listMin) > 0 = TList1 member
+                | otherwise          = TList  member
+
+            member = fromMaybe "member" (x ^. listMember . refLocationName)
+
+            -- defMember
+            --     | proto == Query = "member"
+            --     | proto == EC2   = "member"
+            --     | otherwise      = error $ "Unable to get locationName: " ++ show x
+
+        stream = const (TType "Stream") -- figure out streaming or not
+
+        time = TPrim
+             . PTime
+             . fromMaybe RFC822 -- This should take into account different protocol defaults
+             . view timeTimestampFormat
+
+        number x
+            | x ^. numMin > Just 0 = const (TType "Natural")
+            | otherwise            = TType
+
+service :: (Functor m, MonadError String m)
+        => Service (Untyped Shape) (Untyped Ref)
+        -> m (Service (Derived Shape) (Untyped Ref))
+service s = do
+    -- 1. Override rules are applied to the raw AST.
+    let os = rules (s ^. ovOverrides) (s ^. svcShapes)
+
+    -- 2. Shape's members/fields are given a unique prefix.
+    ps <- prefix os
+
+    -- 3. Shapes which are specified as operation inputs/outputs are checked
+    --    for sharing/commonality.
+    -- let sh = shared (s ^. svcOperations) ps
+
+    -- 4. The textual references in operations and shapes are replaced
+    --    with actual Haskell types.
+    ts <- types (s ^. metaProtocol) ps
+
+    -- 5. Solve the constraints for the annotated types.
+    cs <- constraints' ts
+
+    -- 6. Substitution is done to replace the operation's input/output
+    --    references with actual shapes, and any non-shared shapes
+    --    are then removed from the service's shape map.
+--    return $! subst sh (s & svcShapes .~ ts)
+
+    return (s { _svcShapes = cs })

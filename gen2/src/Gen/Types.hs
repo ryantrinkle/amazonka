@@ -78,7 +78,7 @@ data TType
     | TPrim  Prim
     | TMaybe TType
     | TSens  TType
-    -- | TFlat  TType
+    | TFlat  TType
     -- | TCase  TType
     | TList  Text TType
     | TList1 Text TType
