@@ -21,7 +21,8 @@ module Gen.JSON where
 
 import           Control.Error
 import           Control.Monad
-import           Control.Monad.Except
+import           Control.Monad.Trans.Except
+import Control.Monad.Error
 import qualified Data.Aeson           as Aeson
 import qualified Data.Aeson.Types     as Aeson
 import           Data.ByteString      (ByteString)

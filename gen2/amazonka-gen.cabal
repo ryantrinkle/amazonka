@@ -45,21 +45,21 @@ executable amazonka-gen
           aeson
         , aeson-pretty
         , attoparsec
-        , base                 == 4.7.*
+        , base
         , bifunctors
         , bytestring
         , case-insensitive
         , data-default-class
         , directory-tree
-        , ede                  == 0.2.4.*
+        , ede                  >= 0.2.4
         , errors
         , hashable
         , haskell-src-exts     >= 1.16
-        , hindent              >= 4.4.1
+        , hindent
         , jason
-        , lens                 == 4.5.*
+        , lens
         , mtl
-        , optparse-applicative == 0.11.*
+        , optparse-applicative
         , pandoc
         , parsec
         , scientific
@@ -72,7 +72,8 @@ executable amazonka-gen
         , text
         , text-icu
         , text-manipulate
-        , text-regex-replace   == 0.1.*
+        , text-regex-replace
         , transformers
+        , transformers-compat
         , unordered-containers
         , vector

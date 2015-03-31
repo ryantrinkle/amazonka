@@ -25,8 +25,9 @@ module Gen.Override where
 import           Control.Applicative
 import           Control.Error
 import           Control.Lens
-import           Control.Monad.Except
+import           Control.Monad.Error
 import           Control.Monad.State.Strict
+import           Control.Monad.Trans.Except
 import           Data.Bifunctor
 import           Data.CaseInsensitive       (CI)
 import qualified Data.CaseInsensitive       as CI
@@ -47,7 +48,6 @@ import           Gen.OrdMap                 (OrdMap)
 import qualified Gen.OrdMap                 as OrdMap
 import           Gen.Text                   (safeHead)
 import           Gen.Types                  hiding (override)
-
 
 type PS = HashMap (CI Text) (HashSet (CI Text))
 

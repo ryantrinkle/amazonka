@@ -20,7 +20,8 @@ import           Control.Applicative
 import           Control.Error
 import           Control.Lens              hiding ((<.>), (??))
 import           Control.Monad
-import           Control.Monad.Except
+import           Control.Monad.Trans.Except
+import Control.Monad.Error
 import           Control.Monad.State
 import           Data.Either
 import           Data.Jason                (eitherDecode)

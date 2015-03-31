@@ -71,14 +71,16 @@ gen: build
 build: $(MODEL_DIR)
 	cabal build $(addprefix -,$(findstring j,$(MAKEFLAGS)))
 
-install: add-sources
+deps: add-sources
 	cabal install $(CABAL_INSTALL_DEFARGS) --only-dependencies
 
 clean:
 	cabal clean
-	rm -rf $(MODEL_DIR) $(DEPS) cabal.sandbox.config .cabal-sandbox
+	rm -rf $(MODEL_DIR) $(DEPS) cabal.sandbox.config .cabal-sandbox cabal.config
 
-add-sources: cabal.sandbox.config $(DEPS)
+include ../share/stackage.mk
+
+add-sources: cabal.sandbox.config cabal.config $(DEPS)
 	cabal sandbox add-source vendor/jason
 
 cabal.sandbox.config:

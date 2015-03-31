@@ -18,20 +18,21 @@ module Gen.Library where
 
 import           Control.Applicative
 import           Control.Error
-import           Control.Lens              ((^.))
+import           Control.Lens               ((^.))
 import           Control.Monad
-import           Control.Monad.Except
+import           Control.Monad.Trans.Except
+import Control.Monad.Error
 import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
-import qualified Data.SemVer               as SemVer
-import qualified Data.Text.Lazy            as LText
-import           Filesystem.Path.CurrentOS hiding (encode)
-import qualified Gen.AST                   as AST
+import qualified Data.SemVer                as SemVer
+import qualified Data.Text.Lazy             as LText
+import           Filesystem.Path.CurrentOS  hiding (encode)
+import qualified Gen.AST                    as AST
 import           Gen.Model
 import           Gen.Types
-import           Prelude                   hiding (FilePath)
-import           System.Directory.Tree     hiding (file)
-import qualified Text.EDE                  as EDE
+import           Prelude                    hiding (FilePath)
+import           System.Directory.Tree      hiding (file)
+import qualified Text.EDE                   as EDE
 
 -- tree :: FilePath
 --      -> Templates Protocol

@@ -17,7 +17,8 @@ module Gen.IO where
 import           Control.Applicative
 import           Control.Error
 import           Control.Monad
-import           Control.Monad.Except
+import           Control.Monad.Trans.Except
+import Control.Monad.Error
 import qualified Data.ByteString.Lazy      as LBS
 import           Data.List                 (intercalate)
 import           Data.Maybe

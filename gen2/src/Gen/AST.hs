@@ -35,7 +35,8 @@ import           Control.Arrow                ((***))
 import           Control.Error
 import           Control.Lens                 (makeClassy, makeLenses, view,
                                                (^.))
-import           Control.Monad.Except
+import           Control.Monad.Trans.Except
+import Control.Monad.Error
 import           Data.Aeson
 import           Data.Aeson.Types             (Pair)
 import           Data.Bifunctor
