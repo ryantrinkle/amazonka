@@ -1,4 +1,5 @@
 SHELL     := /usr/bin/env bash
+TOP       := ..
 VERSION   := 0.3.0
 DEPS      := vendor/botocore vendor/jason
 MODEL_DIR := model
@@ -59,7 +60,7 @@ MODELS ?= $(QUERY) $(XML) $(JSON)
 .PHONY: gen
 
 gen: build
-	@echo dist/build/amazonka-gen/amazonka-gen \
+	dist/build/amazonka-gen/amazonka-gen \
  --out=../ \
  --version=$(VERSION) \
  --overrides=override \
