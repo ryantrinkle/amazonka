@@ -20,8 +20,8 @@ import           Control.Applicative
 import           Control.Error
 import           Control.Lens               ((^.))
 import           Control.Monad
+import           Control.Monad.Error
 import           Control.Monad.Trans.Except
-import Control.Monad.Error
 import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
 import qualified Data.SemVer                as SemVer
