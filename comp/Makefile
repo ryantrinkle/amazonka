@@ -1,5 +1,8 @@
-SHELL := /usr/bin/env bash
-DEPS  := vendor/botocore vendor/jason
+SHELL     := /usr/bin/env bash
+TOP       := ..
+VERSION   := 0.3.0
+DEPS      := vendor/botocore vendor/jason vendor/text-regex-replace
+MODEL_DIR := model
 
 CABAL_INSTALL_DEFARGS ?= -j --disable-documentation --disable-coverage
 
@@ -46,14 +49,11 @@ JSON := \
  kms \
  lambda \
  logs \
- machinelearning \
  opsworks \
  route53domains \
- ssm \
  storagegateway \
  support \
- swf \
- workspaces
+ swf
 
 MODELS ?= $(QUERY) $(XML) $(JSON)
 
@@ -62,31 +62,37 @@ MODELS ?= $(QUERY) $(XML) $(JSON)
 gen: build
 	dist/build/amazonka-gen/amazonka-gen \
  --out=../ \
- --services=output \
- --overrides=overrides \
- --templates=templates \
- --assets=assets \
- --retry=input/_retry.json \
- $(addprefix --model=,$(addprefix input/,$(MODELS)))
+ --version=$(VERSION) \
+ --overrides=override \
+ --templates=template \
+ --assets=asset \
+ --retry=$(MODEL_DIR)/_retry.json \
+ $(addprefix --model=,$(addprefix $(MODEL_DIR)/,$(MODELS)))
 
-build: input output
+build: $(MODEL_DIR)
 	cabal build $(addprefix -,$(findstring j,$(MAKEFLAGS)))
 
 deps: add-sources
 	cabal install $(CABAL_INSTALL_DEFARGS) --only-dependencies
 
-full-clean: clean
-	rm -rf input vendor
-
 clean:
 	cabal clean
-	rm -rf output cabal.sandbox.config .cabal-sandbox
+	rm -rf $(MODEL_DIR) cabal.sandbox.config .cabal-sandbox cabal.config
 
-add-sources: cabal.sandbox.config $(DEPS)
+full-clean: clean
+	rm -rf $(DEPS)
+
+include ../share/stackage.mk
+
+add-sources: cabal.sandbox.config $(DEPS) # cabal.config
+	cabal sandbox add-source vendor/text-regex-replace
 	cabal sandbox add-source vendor/jason
 
 cabal.sandbox.config:
 	cabal sandbox init
+
+vendor/text-regex-replace:
+	git clone git@github.com:erochest/text-regex-replace $@
 
 vendor/botocore:
 	git clone git@github.com:boto/botocore $@
@@ -94,8 +100,5 @@ vendor/botocore:
 vendor/%:
 	git clone git@github.com:brendanhay/$*.git $@
 
-input:
+$(MODEL_DIR):
 	cp -rf vendor/botocore/botocore/data/aws $@
-
-output:
-	@mkdir $@
