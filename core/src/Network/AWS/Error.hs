@@ -74,7 +74,7 @@ instance Show a => AWSError (ServiceError a) where
         Errors          xs    -> Errors (map awsError xs)
 
 newtype ErrorCode = ErrorCode Text
-    deriving (Eq, Ord, Show, FromXML, FromJSON, IsString, Generic)
+    deriving (Eq, Ord, Show, FromXML, FromJSON, IsString, Generic, Read)
 
 class AWSErrorCode a where
     awsErrorCode :: a -> Maybe ErrorCode
@@ -82,7 +82,7 @@ class AWSErrorCode a where
 data ErrorType
     = Receiver
     | Sender
-      deriving (Eq, Ord, Enum, Show, Generic)
+      deriving (Eq, Ord, Enum, Show, Generic, Read)
 
 instance FromText ErrorType where
     parser = takeLowerText >>= \case
@@ -98,7 +98,7 @@ data RESTError = RESTError
     , _restType      :: Maybe ErrorType
     , _restCode      :: Maybe ErrorCode
     , _restMessage   :: Text
-    } deriving (Eq, Show, Generic)
+    } deriving (Eq, Show, Generic, Read)
 
 makeLenses ''RESTError
 
